@@ -1,0 +1,25 @@
+{
+  "buff": [
+    "armorShred.js",
+    "invincible.js",
+    "moveBoost.js",
+    "poison.js",
+    "slow.js"
+  ],
+  "area": [
+    "arrowRain.js"
+  ],
+  "skill": [
+    "purifyArrow.js"
+  ],
+  "characters": [
+    "archer.json",
+    "defender.json",
+    "killer.json",
+    "swordsman.json"
+  ],
+  "maps": [
+    "farmland.json",
+    "forest.json"
+  ]
+}
