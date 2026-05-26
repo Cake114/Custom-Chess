@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    
+    <meta charset="UTF-8">
+    <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+<script>
+    // 初始化 VConsole
+    var vConsole = new VConsole();
+</script>
+    <!-- 【修改点 1】: 强制视口不缩放，这是手机端适配的灵魂 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>自定义棋</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 10px;
+            overflow-x: hidden;
+            /* 【修改点 2】: 防止手机上双击放大或多指缩放带来的误触 */
+            touch-action: manipulation;
+        }
+
+        /* 竖屏强制提醒 */
+        #orientation-warning {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            z-index: 9999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        @media screen and (orientation: landscape) and (max-width: 900px) {
+            #orientation-warning { display: flex; }
+        }
+
+        .control-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+            box-sizing: border-box; /* 确保 padding 不会撑破宽度 */
+        }
+        #game-screen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 1400px;
+        }
+        #selection-screen { display: none; }
+
+        /* 游戏主区域布局 */
+        .game-main-area {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            width: 100%;
+            justify-content: center;
+        }
+        /* 状态栏区域 */
+        .status-area {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .status-column {
+            flex: 1;
+            min-width: 0;
+            background: #fff;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 0.9em;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-top: 4px solid #607d8b;
+            min-height: 100px;
+            height: auto;
+            box-sizing: border-box;
+            word-break: break-all;
+            white-space: normal;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .status-stat { font-weight: 500; color: #455a64; }
+        .buff-item {
+            display: block;
+            width: 100%;
+            word-wrap: break-word;
+        }
+        /* 左侧统一包装容器 */
+        .side-container-left {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 360px;
+            flex-shrink: 0;
+        }
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+            height: 600px;
+            flex-shrink: 0;
+        }
+        .side-panel.right {
+            align-items: stretch;
+            min-height: 100px;
+        }
+        details {
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        /* 战斗记录日志样式 */
+        .game-log {
+            height: 250px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #ccc;
+            padding: 8px;
+            font-size: 0.82em;
+            border-radius: 4px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: auto;
+            line-height: 1.5;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        .log-entry { margin-bottom: 3px; border-bottom: 1px dashed #eee; padding-bottom: 2px; }
+        .log-tag { font-weight: bold; margin-right: 4px; }
+
+        .info-row {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #status {
+            font-weight: bold;
+            color: #d32f2f;
+            margin: 10px 0;
+            padding: 10px;
+            background: #ffebee;
+            border-radius: 4px;
+            text-align: center;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .selection-box {
+            background: white;
+            padding: 20px; /* 移动端减小 padding */
+            text-align: center;
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            box-sizing: border-box;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto; /* 允许在小屏幕上滚动 */
+        }
+        .selection-footer {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            position: relative;
+            padding-bottom: 20px;
+        }
+        .map-section {
+            position: relative; /* 移动端改为相对定位 */
+            text-align: center; /* 居中显示 */
+            padding-bottom: 10px;
+            width: 100%;
+        }
+        .char-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px; /* 减小间距 */
+            margin: 20px 0;
+            flex-wrap: wrap; /* 允许换行 */
+        }
+        .char-btn {
+            width: 25vw;
+            height: 35vw;
+            max-width: 100px; /* 移动端略微调小最大尺寸 */
+            max-height: 140px;
+            background-color: white;
+            border: 2px solid #ddd;
+            color: #333;
+            font-size: 1.2em; /* 调整字号 */
+            font-weight: bold;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .char-btn:hover { background-color: #f8f8f8; border-color: #bbb; }
+        .char-btn.active {
+            background-color: #2196f3;
+            border: 2px solid #0d47a1;
+            color: white;
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.4);
+            transform: translateY(-5px);
+        }
+        .map-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 15px 0;
+            flex-wrap: wrap; /* 允许换行 */
+        }
+        .map-btn { padding: 5px 15px; background: #eee; border: 1px solid #ccc; cursor: pointer; border-radius: 4px; }
+        .map-btn.active { background: #4caf50; color: white; border-color: #388e3c; }
+        
+        canvas {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            cursor: pointer;
+            border-radius: 4px;
+            /* 【修改点 3】: 保证 Canvas 在各种屏幕下都不超宽，且保持比例 */
+            max-width: 100%;
+            height: auto !important; 
+            touch-action: none; /* 防止在画布上滑动屏幕 */
+        }
+        
+        input {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            flex-grow: 1;
+            box-sizing: border-box; /* 避免输入框撑破父级 */
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            touch-action: manipulation; /* 优化按钮点击 */
+        }
+        button:hover { background-color: #45a049; }
+        button:disabled { background-color: #ccc; }
+
+        /* 【修改点 4】: 强化移动端 (屏幕宽度小于 900px) 的断点适配 */
+        @media (max-width: 900px) {
+            .info-row { flex-direction: column; width: 100%; }
+            input, button { width: 100%; }
+            #game-info-text { font-size: 0.8em; line-height: 1.4; }
+            
+            /* 强制将左右面板和画布变成垂直排列 */
+            .game-main-area { 
+                flex-direction: column; 
+                align-items: center; 
+                gap: 10px;
+            }
+            
+            /* 释放定宽限制，让它们充满屏幕 */
+            .side-container-left, .side-panel.right { 
+                width: 100% !important; 
+                height: auto; /* 解除高度限制 */
+            }
+            
+            .side-panel { 
+                height: auto; 
+            }
+            
+            /* 战斗记录在手机上稍微矮一点 */
+            .game-log {
+                height: 150px;
+            }
+        }
+    </style>
+    <!-- 引入 PeerJS 库 (升级到 1.5.4 以保证更好的移动端兼容性) -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <div id="orientation-warning"><h2>请将手机转至竖屏以进行游戏</h2></div>
+
+    <!-- 主界面 -->
+    <div id="main-menu" class="control-panel">
+        <h2 style="text-align: center; margin-top: 0;">自定义棋</h2>
+        <div class="info-row">
+            <span>我的 ID: <strong id="my-id">正在生成...</strong></span>
+            <button id="copy-btn">复制</button>
+        </div>
+        <div class="info-row">
+            <input type="text" id="peer-id-input" placeholder="输入对方 ID">
+            <button id="connect-btn">连接</button>
+        </div>
+        <p style="font-size: 0.9em; color: #666; text-align: center;">分享 ID 给好友，连接成功后将自动开始游戏。</p>
+    </div>
+
+    <!-- 选人界面 -->
+    <div id="selection-screen" class="selection-box">
+        <h3>准备对局</h3>
+        <div class="char-section">
+            <p>选择你的角色：</p>
+            <div id="char-group" class="char-group"></div>
+            <div id="char-preview" style="margin-top: 10px; color: #333; min-height: 1.2em; font-weight: bold; white-space: pre-wrap;"></div>
+        </div>
+
+        <div class="selection-footer">
+            <div class="map-section">
+                <p>选择对局地图：</p>
+                <div id="map-group" class="map-group" style="justify-content: center;"></div>
+                <button id="debug-mode-btn" style="background-color: #607d8b; display: none; margin-bottom: 5px;">调试模式: 关</button>
+                <button id="claim-first-btn" style="background-color: #ff9800; width: 100%; margin-top: 10px;">我要先手</button>
+                <p id="first-player-hint" style="color: #666; font-size: 0.8em; margin-top: 5px;">默认先手：我方</p>
+            </div>
+            <div id="opp-ready-hint" style="font-weight: bold; color: #f44336; margin-bottom: 5px;">对方状态：未准备</div>
+            <button id="ready-btn" style="width: 100%; max-width: 400px; height: 50px; font-size: 1.2em;">准备并开始</button>
+            <p id="ready-status" style="font-size: 0.8em; color: #888; margin-top: 5px;">等待双方点击开始...</p>
+        </div>
+    </div>
+
+    <!-- 游戏界面 -->
+    <div id="game-screen">
+        <div id="round-info" style="font-size: 1.5em; font-weight: bold; color: #333; margin-bottom: 10px;">第 0 轮</div>
+        <div id="status">准备中...</div>
+        <div id="game-info-text" style="margin-bottom: 10px; font-size: 0.9em; color: #555; text-align: center;"></div>
+        
+        <div class="game-main-area">
+            <!-- 左侧综合面板容器 -->
+            <div class="side-container-left">
+                <!-- 状态栏面板 -->
+                <div class="status-area">
+                    <div style="display: flex; gap: 10px; width: 100%;">
+                        <div id="my-status-col" class="status-column"><strong>我方状态</strong><div class="status-list"></div></div>
+                        <div id="opp-status-col" class="status-column"><strong>敌方状态</strong><div class="status-list"></div></div>
+                    </div>
+                    <!-- Buff 描述展示区域 -->
+                    <div id="buff-desc-tip" style="background: #fff; border: 1px solid #ccc; padding: 5px; border-radius: 4px; font-size: 0.85em; display: none; width: 100%; box-sizing: border-box; color: #555; box-shadow: 0 2px 5px rgba(0,0,0,0.1);"></div>
+                </div>
+                <!-- 属性详情面板 -->
+                <div class="side-panel">
+                    <details>
+                        <summary>我方详情</summary>
+                        <div id="my-details-content" style="white-space: pre-wrap; padding-top: 5px;"></div>
+                    </details>
+                    <details>
+                        <summary>敌方详情</summary>
+                        <div id="opp-details-content" style="white-space: pre-wrap; padding-top: 5px;"></div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Canvas 画布 -->
+            <canvas id="gameCanvas" width="600" height="600"></canvas>
+
+            <!-- 右侧操作面板 -->
+            <div class="side-panel right" style="width: 360px;">
+                <button id="atk-mode-btn" style="background-color: #ccc; height: 45px;" disabled>移动模式</button>
+                <button id="end-turn-btn" style="background-color: #ccc; height: 45px;" disabled>结束回合</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px; align-items: stretch;">
+                    <div id="skill-group" style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;"></div>
+                    <button id="confirm-skill-btn" style="background-color: #ccc; width: 60px; font-size: 0.9em; padding: 5px; display: none;" disabled>确定释放</button>
+                </div>
+                <!-- 战斗记录区域 -->
+                <div id="game-log" class="game-log">
+                    <div style="color: #999; text-align: center;">--- 战斗记录 ---</div>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <button id="return-btn" style="display: none; background-color: #f44336; width: 100%; max-width: 300px;">返回主菜单</button>
+        </div>
+    </div>
+
+    <!-- 【修改点 5】: 加载 JS，并加入调试探测器 -->
+    <script src="game.js"></script>
+    <script>
+        // 这是一个防呆设计：如果在手机上直接打开文件，提示用户。
+        window.addEventListener('load', () => {
+            if (window.location.protocol === 'file:') {
+                document.getElementById('my-id').innerHTML = "<span style='color:red;'>安全限制！请使用服务器环境(如 Vercel)打开</span>";
+            }
+        });
+    </script>
+</body>
+</html>
