@@ -431,30 +431,27 @@ function setupConnection() {
 }
 
 // 通用目录扫描函数：利用 Live Server 的索引页面自动获取文件列表
-async function scanDirectory(path, extension) {
-    try {
-        const response = await fetch(path + "?t=" + Date.now()); // 添加随机参数防止缓存
-        if (response.status === 404) {
-            console.warn(`[扫描跳过] 目录不存在或服务器拒绝列表访问: ${path}`);
-            return [];
-        }
-        if (!response.ok) return [];
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const links = Array.from(doc.querySelectorAll('a'));
+// GitHub API 基础路径
+const GITHUB_API_BASE = 'https://api.github.com/repos/Cakemay/Custom-Chess/contents/';
 
-        return links
-            .map(a => a.getAttribute('href'))
-            .filter(href => href && href.endsWith(extension))
-            .map(href => {
-                const parts = href.split('/');
-                const fileName = parts[parts.length - 1];
-                return fileName.replace(extension, '');
-            });
-    } catch (e) {
-        console.warn(`扫描目录 ${path} 失败:`, e);
-        return [];
+/**
+ * 替代你原有的 scanDirectory
+ * @param {string} path - 文件夹名称，如 'buff/'
+ */
+async function scanDirectory(path, extension) {
+    console.log(`正在从 GitHub 获取 ${path} 的文件列表...`);
+    try {
+        // 请求 GitHub API 获取目录内容
+        const response = await fetch(GITHUB_API_BASE + path.replace(/\/$/, ''));
+        const files = await response.json();
+
+        // 过滤出指定后缀的文件名
+        return files
+            .filter(file => file.name.endsWith(extension))
+            .map(file => file.name);
+    } catch (error) {
+        console.error(`获取 ${path} 失败:`, error);
+        return []; // 出错时返回空数组，防止程序崩溃
     }
 }
 
