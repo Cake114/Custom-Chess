@@ -1,0 +1,56 @@
+{
+    "id": "archer",
+    "name": "弓箭手",
+    "hp": 80,
+    "overflow": 3,
+    "atkRange": 3,
+    "atkRangeType": "projectile",
+    "atkDmg": 10,
+    "skills": [
+        {
+            "name": "泥潭陷阱",
+            "cdMax": 6,
+            "desc": "对范围内目标施加3轮减速（无法叠加）",
+            "consumeTurn": false,
+            "range": 1,
+            "rangeType": "round",
+            "rangeDesc": "自身中心3x3",
+            "damage": 0,
+            "effectDesc": "减速：移动点保持0，且回合开始时无法获得溢出点",
+            "buffEffect": {
+                "name": "slow",
+                "duration": 3,
+                "stacks": 1,
+                "stackable": false
+            }
+        },
+        {
+            "name": "净化箭矢",
+            "cdMax": 8,
+            "desc": "射出净化箭矢，清除目标所有状态。每清除一种额外造成8点伤害。",
+            "consumeTurn": false,
+            "range": 4,
+            "rangeType": "projectile",
+            "damage": 10,
+            "script": "purifyArrow"
+        },
+        {
+            "name": "箭雨",
+            "cdMax": 11,
+            "desc": "展开2轮3x3箭雨造成15伤害",
+            "consumeTurn": true,
+            "range": 2,
+            "rangeType": "area_placement",
+            "rangeDesc": "自身中心5x5",
+            "damage": 15,
+            "effectDesc": "敌方回合结束时，对箭雨内目标造成15伤害",
+            "areaEffect": {
+                "name": "arrowRain",
+                "duration": 2,
+                "damage": 15,
+                "areaRange": 1,
+                "rangeType": "round"
+            }
+        }
+    ]
+}

@@ -1,0 +1,52 @@
+{
+    "id": "killer",
+    "name": "杀手",
+    "hp": 70,
+    "overflow": 2,
+    "atkRange": 1,
+    "atkDmg": 12,
+    "skills": [
+        {
+            "name": "淬毒飞刀",
+            "cdMax": 8,
+            "desc": "沿直线掷出毒刃，命中首个格子的所有目标并造成10伤害，施加3轮5中毒（无法叠加）",
+            "consumeTurn": true,
+            "range": 3,
+            "effectDesc": "中毒：每层使每轮结束时失去1点HP",
+            "rangeType": "projectile",
+            "damage": 6,
+            "buffEffect": {
+                "name": "poison",
+                "duration": 3,
+                "stacks": 5,
+                "stackable": false
+            }
+        },
+        {
+            "name": "提前隐蔽（暗置）",
+            "cdMax": 6,
+            "desc": "直到下个敌方回合结束前，获得隐蔽",
+            "isSecret": true,
+            "consumeTurn": false,
+            "rangeType": "self",
+            "effectDesc": "隐蔽：无法被命中",
+            "buffEffect": {
+                "name": "invincible",
+                "duration": 1
+            }
+        },
+        {
+            "name": "准备",
+            "cdMax": 12,
+            "desc": "对自己施加3轮急速（无法叠加）",
+            "consumeTurn": true,
+            "rangeType": "self",
+            "effectDesc": "急速：回合开始时额外获得1个移动点",
+            "buffEffect": {
+                "name": "moveBoost",
+                "duration": 3,
+                "stackable": false
+            }
+        }
+    ]
+}

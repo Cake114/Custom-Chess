@@ -1,0 +1,8 @@
+{
+    "id": "defender",
+    "name": "盾兵",
+    "hp": 120,
+    "overflow": 0,
+    "atkRange": 1,
+    "atkDmg": 14
+}
