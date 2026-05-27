@@ -23,5 +23,7 @@
     "farmland.json",
     "forest.json"
   ],
-  "lang": []
+  "lang": [
+    "test"
+  ]
 }
