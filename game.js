@@ -73,9 +73,13 @@ async function loadLanguage(lang = 'en_us') {
             currentLangCode = lang;
             applyI18nToUI();
             renderLangSwitcher(availableLangs);
-            // 核心修复：语言加载后立即刷新 UI
-            if (selectionScreen.style.display === 'flex') { renderCharButtons(); renderMapButtons(); }
-            if (gameActive) { updateHPDisplay(); drawCharacters(); }
+            
+            // 核心修复：语言加载后全面刷新所有动态 UI 组件
+            if (selectionScreen.style.display === 'flex') {
+                renderCharButtons(); renderMapButtons(); updateFirstMoveUI(); 
+                updateReadyButtonText(); // 刷新准备按钮的动态文字
+            }
+            if (gameActive) { updateHPDisplay(); drawCharacters(); updateStatusText(); }
 
             // 语言变更时同步给对方
             if (conn && conn.open) {
@@ -128,6 +132,23 @@ function applyI18nToUI() {
     if (readyStatusText) readyStatusText.innerText = i18n.ui_ready_status_waiting;
 
     if (window.location.protocol === 'file:') myIdDisplay.innerHTML = `<span style='color:red;'>${t('msg_security_err')}</span>`;
+}
+
+// 新增：专门处理准备按钮在不同状态下的翻译刷新
+function updateReadyButtonText() {
+    if (!readyBtn) return;
+    if (amIReady) {
+        readyBtn.innerText = t('ui_ready_btn_waiting');
+    } else if (mySelectedChar) {
+        readyBtn.innerText = t('ui_ready_btn_start');
+    } else {
+        readyBtn.innerText = t('ui_ready_btn_select');
+    }
+
+    // 同时刷新调试模式按钮
+    if (debugModeBtn) {
+        debugModeBtn.innerText = t('ui_debug_mode', isDebugMode ? t('ui_debug_on') : t('ui_debug_off'));
+    }
 }
 
 // Low-level function to append log entry to DOM
@@ -759,7 +780,7 @@ window.selectChar = function (char) {
     // 更新准备按钮状态
     if (!mySelectedChar) {
         readyBtn.disabled = true;
-        readyBtn.innerText = t('ui_ready_btn_select');
+        updateReadyButtonText();
         document.getElementById('char-preview').innerText = '';
     } else {
         readyBtn.disabled = false;
