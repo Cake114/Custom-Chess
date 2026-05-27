@@ -43,6 +43,54 @@
             #orientation-warning { display: flex; }
         }
 
+        /* 语言切换图标样式 */
+        #lang-switcher {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            z-index: 10001;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 20px;
+            width: 42px;
+            min-height: 42px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 24px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            padding: 5px 0;
+            overflow: hidden;
+        }
+        #lang-switcher:hover { 
+            width: 100px;
+            border-radius: 12px;
+            background: #fff;
+        }
+        #lang-list {
+            display: none;
+            flex-direction: column;
+            width: 100%;
+            margin-top: 10px;
+            border-top: 1px solid #eee;
+        }
+        #lang-switcher:hover #lang-list {
+            display: flex;
+        }
+        .lang-item {
+            font-size: 12px;
+            padding: 8px 0;
+            text-align: center;
+            width: 100%;
+            color: #666;
+            transition: background 0.2s;
+        }
+        .lang-item:hover { background: #f5f5f5; color: #2196f3; }
+        .lang-item.active { color: #2196f3; font-weight: bold; background: #e3f2fd; }
+
         .control-panel {
             background: white;
             padding: 20px;
@@ -185,10 +233,11 @@
             padding-bottom: 20px;
         }
         .map-section {
-            position: relative; /* 移动端改为相对定位 */
-            text-align: center; /* 居中显示 */
-            padding-bottom: 10px;
-            width: 100%;
+            position: absolute; /* PC端丢到右下角 */
+            right: 40px;
+            bottom: 40px;
+            text-align: right;
+            width: auto;
         }
         .char-group {
             display: flex;
@@ -198,10 +247,10 @@
             flex-wrap: wrap; /* 允许换行 */
         }
         .char-btn {
-            width: 25vw;
-            height: 35vw;
-            max-width: 100px; /* 移动端略微调小最大尺寸 */
-            max-height: 140px;
+            width: 35vw;
+            height: 20vw;
+            max-width: 160px; /* 改为躺下的长方形 */
+            max-height: 90px;
             background-color: white;
             border: 2px solid #ddd;
             color: #333;
@@ -230,6 +279,13 @@
         .map-btn { padding: 5px 15px; background: #eee; border: 1px solid #ccc; cursor: pointer; border-radius: 4px; }
         .map-btn.active { background: #4caf50; color: white; border-color: #388e3c; }
         
+        /* PC端布局修正：确保按钮组也向右对齐，与文字统一 */
+        @media (min-width: 901px) {
+            .map-section .map-group {
+                justify-content: flex-end;
+            }
+        }
+
         canvas {
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
             cursor: pointer;
@@ -254,7 +310,12 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            white-space: nowrap; /* 防止英文长按钮换行 */
             touch-action: manipulation; /* 优化按钮点击 */
+        }
+        #claim-first-btn {
+            width: auto;
+            min-width: 120px;
         }
         button:hover { background-color: #45a049; }
         button:disabled { background-color: #ccc; }
@@ -265,6 +326,16 @@
             input, button { width: 100%; }
             #game-info-text { font-size: 0.8em; line-height: 1.4; }
             
+            /* 移动端恢复默认排版 */
+            .map-section {
+                position: relative;
+                right: auto;
+                bottom: auto;
+                text-align: center;
+                width: 100%;
+            }
+            #claim-first-btn { width: 100%; }
+
             /* 强制将左右面板和画布变成垂直排列 */
             .game-main-area { 
                 flex-direction: column; 
@@ -294,6 +365,12 @@
 <body>
     <div id="orientation-warning"><h2>请将手机转至竖屏以进行游戏</h2></div>
 
+    <!-- 语言切换按钮 -->
+    <div id="lang-switcher" title="Switch Language">
+        🌐
+        <div id="lang-list"></div>
+    </div>
+
     <!-- 主界面 -->
     <div id="main-menu" class="control-panel">
         <h2 style="text-align: center; margin-top: 0;">自定义棋</h2>
@@ -310,17 +387,17 @@
 
     <!-- 选人界面 -->
     <div id="selection-screen" class="selection-box">
-        <h3>准备对局</h3>
+        <h3 data-i18n="ui_prepare_game">准备对局</h3>
         <div class="char-section">
-            <p>选择你的角色：</p>
+            <p data-i18n="ui_select_char">选择你的角色：</p>
             <div id="char-group" class="char-group"></div>
             <div id="char-preview" style="margin-top: 10px; color: #333; min-height: 1.2em; font-weight: bold; white-space: pre-wrap;"></div>
         </div>
 
         <div class="selection-footer">
             <div class="map-section">
-                <p>选择对局地图：</p>
-                <div id="map-group" class="map-group" style="justify-content: center;"></div>
+                <p data-i18n="ui_select_map">选择对局地图：</p>
+                <div id="map-group" class="map-group"></div>
                 <button id="debug-mode-btn" style="background-color: #607d8b; display: none; margin-bottom: 5px;">调试模式: 关</button>
                 <button id="claim-first-btn" style="background-color: #ff9800; width: 100%; margin-top: 10px;">我要先手</button>
                 <p id="first-player-hint" style="color: #666; font-size: 0.8em; margin-top: 5px;">默认先手：我方</p>

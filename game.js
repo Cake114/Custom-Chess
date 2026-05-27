@@ -21,6 +21,115 @@ const charGroup = document.getElementById('char-group');
 const confirmSkillBtn = document.getElementById('confirm-skill-btn');
 const debugModeBtn = document.getElementById('debug-mode-btn');
 
+// 语言系统
+const LANG_PATH = 'lang/';
+let i18n = {};
+let currentLangCode = 'en_us'; // 默认使用英文
+
+function t(key, ...args) {
+    let text = i18n[key] !== undefined ? i18n[key] : key;
+    if (args.length === 0) return text;
+
+    // 模式 A：对象映射 (支持 {rangeArgs.0} 这种灵活编码)
+    if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !Array.isArray(args[0])) {
+        const data = args[0];
+        return text.replace(/{([^}]+)}/g, (match, path) => {
+            // 优先从自定义变量池 vars 中找，找不到再找根属性
+            const vars = data.vars || {};
+            let value = vars[path];
+            if (value === undefined) {
+                value = path.split('.').reduce((obj, prop) => obj?.[prop], data);
+            }
+            if (value === undefined) return match;
+
+            // 智能识别 Buff 名称或键名
+            if (typeof value === 'string') {
+                const buffKey = `buff_${value}_name`;
+                if (i18n[buffKey]) return i18n[buffKey];
+                if (i18n[value]) return i18n[value];
+            }
+            return value;
+        });
+    }
+
+    // 模式 B：索引替换 (支持 {0}, {1})
+    args.forEach((arg, i) => {
+        // 如果参数是翻译键，先翻译参数；否则直接使用
+        const val = (typeof arg === 'string' && i18n[arg] !== undefined) ? i18n[arg] : arg;
+        text = text.split(`{${i}}`).join(val);
+    });
+    return text;
+}
+
+async function loadLanguage(lang = 'en_us') {
+    try {
+        const availableLangs = await scanDirectory(LANG_PATH, '.json');
+        const resp = await fetch(`${LANG_PATH}${lang}.json?t=${Date.now()}`);
+        if (resp.ok) {
+            i18n = await resp.json();
+            currentLangCode = lang;
+            applyI18nToUI();
+            renderLangSwitcher(availableLangs);
+            // 核心修复：语言加载后立即刷新 UI
+            if (selectionScreen.style.display === 'flex') { renderCharButtons(); renderMapButtons(); }
+            if (gameActive) { updateHPDisplay(); drawCharacters(); }
+        }
+    } catch (e) { console.error("Language load failed:", e); }
+}
+
+function renderLangSwitcher(availableLangs) {
+    const langList = document.getElementById('lang-list');
+    if (!langList) return;
+    langList.innerHTML = '';
+
+    const langDisplayNames = {
+        'en_us': 'English',
+        'zh_cn': '简体中文'
+    };
+
+    availableLangs.forEach(lang => {
+        const item = document.createElement('div');
+        item.className = 'lang-item' + (lang === currentLangCode ? ' active' : '');
+        item.innerText = langDisplayNames[lang] || lang.toUpperCase().replace('_', '-');
+        item.onclick = (e) => {
+            e.stopPropagation();
+            loadLanguage(lang);
+        };
+        langList.appendChild(item);
+    });
+}
+
+function applyI18nToUI() {
+    if (!i18n.ui_title) return;
+
+    // Use data-i18n attributes for more flexible UI updates if present
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (i18n[key]) el.innerText = i18n[key];
+    });
+
+    // Fallback for existing specific selectors
+    const mainMenuTitle = document.querySelector('#main-menu h2');
+    if (mainMenuTitle) mainMenuTitle.innerText = i18n.ui_title;
+    
+    if (myIdDisplay && myIdDisplay.previousSibling) {
+        myIdDisplay.previousSibling.textContent = i18n.ui_my_id_label;
+    }
+    
+    copyBtn.innerText = i18n.ui_copy;
+    peerIdInput.placeholder = i18n.ui_input_placeholder;
+    connectBtn.innerText = i18n.ui_connect;
+    claimFirstBtn.innerText = i18n.ui_claim_first;
+    readyStatusText.innerText = i18n.ui_ready_status_waiting;
+    gameInfoText.innerText = "";
+
+    const logHeader = document.querySelector('#game-log div');
+    if (logHeader) logHeader.innerText = i18n.ui_log_header;
+
+    returnBtn.innerText = i18n.ui_return_menu;
+    if (window.location.protocol === 'file:') myIdDisplay.innerHTML = `<span style='color:red;'>${t('msg_security_err')}</span>`;
+}
+
 // 战斗日志系统 (移动到顶部确保全局可用)
 function addLog(msg, color = '#333', broadcast = true) {
     const logBox = document.getElementById('game-log');
@@ -29,7 +138,7 @@ function addLog(msg, color = '#333', broadcast = true) {
     entry.className = 'log-entry';
     entry.style.color = color;
     
-    const timeTag = `<span class="log-tag" style="color:#888">[轮${currentRound || 0}]</span>`;
+    const timeTag = `<span class="log-tag" style="color:#888">${t('log_round_tag', currentRound || 0)}</span>`;
     entry.innerHTML = `${timeTag}${msg}`;
     
     logBox.appendChild(entry);
@@ -43,9 +152,9 @@ function addLog(msg, color = '#333', broadcast = true) {
          * 主机看到的“敌方” -> 客户端看到的应该是“我方”
          */
         let clientMsg = msg
-            .replace(/我方/g, "TEMP_PLACEHOLDER")
-            .replace(/敌方/g, "我方")
-            .replace(/TEMP_PLACEHOLDER/g, "敌方");
+            .replace(new RegExp(t('log_side_me'), 'g'), "TEMP_PLACEHOLDER")
+            .replace(new RegExp(t('log_side_opp'), 'g'), t('log_side_me'))
+            .replace(/TEMP_PLACEHOLDER/g, t('log_side_opp'));
             
         conn.send({ type: 'log_msg', msg: clientMsg, color: color });
     }
@@ -149,7 +258,7 @@ function renderMapButtons() {
         const btn = document.createElement('button');
         btn.className = 'map-btn';
         if (selectedMapId === id) btn.classList.add('active');
-        btn.innerText = mapNames[id] || id;
+        btn.innerText = t(mapNames[id]) || id;
         btn.onclick = () => {
             if (amIReady) return; // 准备后禁止更换地图
             selectedMapId = id;
@@ -168,7 +277,7 @@ function renderCharButtons() {
         btn.className = 'char-btn';
         btn.dataset.id = id; // 将英文 ID 存于 dataset 中，用于后续 logic 判断
         if (mySelectedChar === id) btn.classList.add('active');
-        btn.innerText = charNames[id] || '读取中...';
+        btn.innerText = t(charNames[id]) || t('ui_loading');
         btn.onclick = () => selectChar(id);
 
         // 悬停请求属性
@@ -207,7 +316,7 @@ function initPeer() {
 
     peer.on('error', (err) => {
         console.error(err);
-        alert("连接出错: " + err.type);
+        alert(t('msg_conn_err', err.type));
     });
 }
 
@@ -220,7 +329,7 @@ connectBtn.addEventListener('click', () => {
     isHost = true; // 发起连接者为主机
     myColor = 'black'; // 主动发起者为黑棋
 
-    connectBtn.innerText = "正在连接...";
+    connectBtn.innerText = t('ui_connecting');
     connectBtn.disabled = true;
 
     conn.on('open', () => {
@@ -265,7 +374,7 @@ function setupConnection() {
             // 更新对方准备状态提示
             const hint = document.getElementById('opp-ready-hint');
             if (hint) {
-                hint.innerText = "对方状态：已就绪";
+                hint.innerText = t('ui_opp_ready_hint', t('ui_ready_yes'));
                 hint.style.color = "#4caf50";
             }
             checkBothReady();
@@ -275,7 +384,7 @@ function setupConnection() {
         } else if (data.type === 'char_info_res') {
             // 客户端收到查询结果
             const s = data.stats;
-            document.getElementById('char-preview').innerText = formatStats(s, ' | ');
+            document.getElementById('char-preview').innerText = formatStats(s, ' | ', true);
         } else if (data.type === 'sync_all_names') {
             charNames = data.names;
             AVAILABLE_CHARS = data.ids; // 同步角色 ID 列表
@@ -332,7 +441,7 @@ function setupConnection() {
 
                     // 日志：敌方放置坐标、范围大小、持续时间
                     const areaSizeDesc = getAreaSizeDescription(areaCfg.areaRange, areaCfg.rangeType);
-                    addLog(`[区域] 敌方 施放 ${skill.name} [${targetR},${targetC}] (${areaSizeDesc}, ${areaCfg.duration}轮)`, '#d32f2f');
+                    addLog(t('log_area_cast_pos', t('log_side_opp'), skill.name, targetR, targetC, areaSizeDesc, areaCfg.duration), '#d32f2f');
                     
                     // 调用区域 onStart 效果
                     const areaLogic = areaRegistry[areaCfg.name];
@@ -342,7 +451,7 @@ function setupConnection() {
                 }
 
                 if (!skill.isSecret) {
-                    addLog(`[技能] 敌方 释放了技能 [${skill.name}]`, '#d32f2f');
+                    addLog(t('log_skill_cast', t('log_side_opp'), skill.name), '#d32f2f');
                 }
 
                 // 修正：增加命中校验。如果目标处于“无法命中”状态，则不产生伤害和 Buff
@@ -352,21 +461,25 @@ function setupConnection() {
                         const armor = calculateArmor(myStats);
                         let finalDmg = getSkillFinalDamage(skill, myStats);
 
-                        // 灵活脚本逻辑：处理客户端（对手）释放的技能脚本
-                        const logic = skillRegistry[skill.script];
-                        if (logic && typeof logic.onHit === 'function') {
-                            const result = logic.onHit(myStats, skill);
-                            if (result && result.bonusDamage) finalDmg += result.bonusDamage;
-                            if (result && result.log) addLog(result.log, '#9c27b0');
+                        // 升级后的组件化脚本逻辑：支持多个脚本顺序执行
+                        if (skill.scripts && Array.isArray(skill.scripts)) {
+                            skill.scripts.forEach(sRef => {
+                                const logic = skillRegistry[sRef.name];
+                                if (logic && typeof logic.onHit === 'function') {
+                                    const result = logic.onHit(myStats, skill, sRef.props);
+                                    if (result && result.bonusDamage) finalDmg += result.bonusDamage;
+                                    if (result && result.log) addLog(result.log, '#9c27b0');
+                                }
+                            });
                         }
 
                         applyDamage(myStats, finalDmg, 'skill');
                         if (!skill.isSecret) {
-                            addLog(`[命中] 技能命中！我方 受到 ${finalDmg} 点伤害 (护甲抵扣: ${armor})`);
+                            addLog(t('log_hit_skill', t('log_side_me'), finalDmg, armor));
                         }
                         applyBuffFromSkill(myStats, skill);
                     } else if (!skill.isSecret) {
-                        addLog(`[闪避] 技能被 我方 闪避了！`, '#666');
+                        addLog(t('log_miss_me'), '#666');
                     }
                 }
                 // 核心修改：技能不对释放者生效（除非是明确的自身强化技能 rangeType: self）
@@ -412,7 +525,7 @@ function setupConnection() {
         selectedTargetPos = null;
         isAtkMode = false;
         conn = null;
-        alert("对方已断开连接");
+        alert(t('msg_peer_disconnected'));
         showMenu();
     });
 
@@ -422,7 +535,7 @@ function setupConnection() {
         selectedTargetPos = null;
         isAtkMode = false;
         conn = null;
-        alert("连接出错");
+        alert(t('ui_conn_error', ""));
         showMenu();
     });
 
@@ -437,11 +550,11 @@ const isLocal = window.location.protocol === 'file:' || window.location.hostname
 async function scanDirectory(path, extension) {
     if (isLocal) {
         // 本地调试环境：发起 DOM 索引页深度扫描，获取同级目录所有资源
-        console.log(`[开发模式检测] 正在通过本地 HTTP 索引自动遍历目录：${path}`);
+        console.log(t('sys_local_scan', path));
         try {
             const response = await fetch(path + "?t=" + Date.now()); // 添加随机参数防止浏览器缓存旧数据
             if (response.status === 404) {
-                console.warn(`[扫描跳过] 目录不存在或服务器拒绝列表访问: ${path}`);
+                console.warn(t('sys_scan_skip', path));
                 return [];
             }
             if (!response.ok) return [];
@@ -459,16 +572,16 @@ async function scanDirectory(path, extension) {
                     return fileName.replace(extension, '');
                 });
         } catch (e) {
-            console.warn(`本地扫描目录 ${path} 失败:`, e);
+            console.warn(t('sys_scan_fail', path), e);
             return [];
         }
     } else {
         // 线上部署环境：直接精准拉取 GitHub Actions 自动生成的 filelist.json 静态描述清单，彻底绕过 API 限制
-        console.log(`[线上部署检测] 正在通过 filelist.json 安全匹配资源清单：${path}`);
+        console.log(t('sys_online_scan', path));
         try {
             const response = await fetch(`./filelist.json?t=${Date.now()}`);
             if (!response.ok) {
-                console.warn(`[扫描跳过] 无法读取静态清单 filelist.json`);
+                console.warn(t('sys_scan_skip_list'));
                 return [];
             }
             const data = await response.json();
@@ -482,7 +595,7 @@ async function scanDirectory(path, extension) {
                 .filter(fileName => fileName.endsWith(extension))
                 .map(fileName => fileName.replace(extension, ''));
         } catch (e) {
-            console.warn(`读取静态清单 ${path} 失败:`, e);
+            console.warn(t('sys_list_fail', path), e);
             return [];
         }
     }
@@ -491,7 +604,7 @@ async function scanDirectory(path, extension) {
 // 自动加载所有 Buff 和 区域效果脚本
 async function preloadGameScripts() {
     if (!isHost) return;
-    console.log("开始自动扫描并预加载所有游戏脚本...");
+    console.log(t('sys_preload'));
     
     const buffs = await scanDirectory(BUFF_PATH, '.js');
     buffs.forEach(name => ensureBuffLoaded(name));
@@ -506,7 +619,7 @@ async function preloadGameScripts() {
 // 调试模式切换逻辑
 debugModeBtn.addEventListener('click', () => {
     isDebugMode = !isDebugMode;
-    debugModeBtn.innerText = `调试模式: ${isDebugMode ? '开' : '关'}`;
+    debugModeBtn.innerText = t('ui_debug_mode', isDebugMode ? t('ui_debug_on') : t('ui_debug_off'));
     debugModeBtn.style.backgroundColor = isDebugMode ? '#4caf50' : '#607d8b';
 });
 
@@ -528,7 +641,7 @@ async function refreshCharNames() {
         }
 
         // 4. 按角色名称的拼音/字母首字母排序 (localeCompare 支持中文)
-        AVAILABLE_CHARS.sort((a, b) => charNames[a].localeCompare(charNames[b], 'zh-Hans-CN'));
+        AVAILABLE_CHARS.sort((a, b) => charNames[a].localeCompare(charNames[b], currentLangCode.replace('_', '-')));
 
         renderCharButtons();
 
@@ -537,7 +650,7 @@ async function refreshCharNames() {
             conn.send({ type: 'sync_all_names', names: charNames, ids: AVAILABLE_CHARS });
         }
     } catch (e) {
-        console.error("自动识别角色卡失败，请确保 Live Server 已开启目录浏览:", e);
+        console.error(t('sys_char_fail'), e);
     }
 }
 
@@ -561,7 +674,7 @@ async function refreshMapNames() {
             conn.send({ type: 'sync_all_maps', names: mapNames, ids: AVAILABLE_MAPS });
         }
     } catch (e) {
-        console.error("识别地图失败:", e);
+        console.error(t('sys_map_fail'), e);
     }
 }
 
@@ -578,31 +691,35 @@ async function displayCharPreview(charId) {
     try {
         const resp = await fetch(`${CHAR_PATH}${charId}.json?t=${Date.now()}`);
         const data = await resp.json();
-        document.getElementById('char-preview').innerText = formatStats(data, ' | ');
+        document.getElementById('char-preview').innerText = formatStats(data, ' | ', true);
     } catch (e) { }
 }
 
 // 通用的属性格式化函数，方便统一维护顺序
-function formatStats(s, sep) {
+function formatStats(s, sep, showSecret = false) {
     const max = parseInt(s.overflow) || 0;
-    const overflowStr = max > 0 ? max : "0 (不可用)";
+    const overflowStr = max > 0 ? max : t('ui_overflow_not_avail');
     let lines = [
-        `名称: ${s.name || s.id}`,
-        `生命: ${s.hp || 100}`,
-        `溢出需求: ${overflowStr}`,
-        `攻击: ${s.atkDmg || 20}`,
-        `攻击距离: ${s.atkRange || 1}`
+        `${t('stat_name')}: ${t(s.name) || s.id}`,
+        `${t('stat_hp')}: ${s.hp || 100}`,
+        `${t('stat_overflow_req')}: ${overflowStr}`,
+        `${t('stat_atk')}: ${s.atkDmg || 20}`,
+        `${t('stat_atk_range')}: ${s.atkRange || 1}`
     ];
 
     if (s.skills && s.skills.length > 0) {
-        s.skills.forEach((skill, index) => {
-            const desc = skill.desc || "无描述";
-            const cdInfo = `(CD: ${skill.cdCurrent !== undefined ? skill.cdCurrent : 0}/${skill.cdMax})`;
-            const typeInfo = skill.consumeTurn ? "结束回合" : "消耗1点AP";
-            lines.push(`\n技能${index + 1}: ${skill.name} ${cdInfo} [${typeInfo}]`);
-            lines.push(`   - 描述: ${desc}`);
-            lines.push(`   - 范围: ${skill.rangeDesc || "无"}`);
-            lines.push(`   - 效果: ${skill.effectDesc || "无"}`);
+        let skillCount = 1;
+        s.skills.forEach((skill) => {
+            // 核心修复：如果是暗置技能且没有显示权限，则直接跳过该技能的渲染
+            if (skill.isSecret && !showSecret) return;
+
+            const desc = skill.desc ? t(skill.desc, skill) : t('ui_no_desc');
+            const cdInfo = t('ui_skill_cd', t('stat_cd'), skill.cdCurrent !== undefined ? skill.cdCurrent : 0, skill.cdMax);
+            const typeInfo = skill.consumeTurn ? t('ui_skill_type_turn') : t('ui_skill_type_ap');
+            lines.push(`\n${t('ui_skill_prefix', skillCount++)}${t(skill.name)} ${cdInfo} [${typeInfo}]`);
+            lines.push(t('ui_skill_desc_label', desc));
+            lines.push(t('ui_skill_range_label', skill.rangeDesc ? t(skill.rangeDesc, skill) : t('ui_none')));
+            lines.push(t('ui_skill_effect_label', skill.effectDesc ? t(skill.effectDesc, skill) : t('ui_none')));
         });
     }
 
@@ -626,11 +743,11 @@ window.selectChar = function (char) {
     // 更新准备按钮状态
     if (!mySelectedChar) {
         readyBtn.disabled = true;
-        readyBtn.innerText = "请选择角色";
+        readyBtn.innerText = t('ui_ready_btn_select');
         document.getElementById('char-preview').innerText = '';
     } else {
         readyBtn.disabled = false;
-        readyBtn.innerText = "准备并开始";
+        readyBtn.innerText = t('ui_ready_btn_start');
     }
 };
 
@@ -643,19 +760,19 @@ function resetSelectionState() {
     // 初始设为未选择状态
     mySelectedChar = null;
     readyBtn.disabled = true;
-    readyBtn.innerText = "请选择角色";
+    readyBtn.innerText = t('ui_ready_btn_select');
 
     if (debugModeBtn) {
-        debugModeBtn.innerText = "调试模式: 关";
+        debugModeBtn.innerText = t('ui_debug_mode', t('ui_debug_off'));
         debugModeBtn.style.backgroundColor = "#607d8b";
         debugModeBtn.style.display = 'none';
     }
-    readyStatusText.innerText = "等待双方点击开始...";
+    readyStatusText.innerText = t('ui_ready_status_waiting');
 
     // 重置对方状态提示
     const hint = document.getElementById('opp-ready-hint');
     if (hint) {
-        hint.innerText = "对方状态：未准备";
+        hint.innerText = t('ui_opp_ready_hint', t('ui_ready_not'));
         hint.style.color = "#f44336";
     }
 
@@ -675,14 +792,14 @@ function updateFirstMovePlayer(color) {
 }
 
 function updateFirstMoveUI() {
-    const name = firstMoveColor === myColor ? "我方" : "敌方";
-    firstPlayerHint.innerText = `当前先手：${name}`;
+    const name = firstMoveColor === myColor ? t('log_side_me') : t('log_side_opp');
+    firstPlayerHint.innerText = t('ui_first_player_hint', name);
 }
 
 readyBtn.addEventListener('click', () => {
     amIReady = true;
     readyBtn.disabled = true;
-    readyBtn.innerText = "已准备，等待对方...";
+    readyBtn.innerText = t('ui_ready_btn_waiting');
     if (conn) conn.send({ type: 'ready_start', character: mySelectedChar });
     checkBothReady();
 });
@@ -692,7 +809,7 @@ function checkBothReady() {
         showGame();
         startGame();
     } else if (isOpponentReady) {
-        readyStatusText.innerText = "对方已就绪！";
+        readyStatusText.innerText = t('ui_ready_status_opp_ready');
     }
 }
 
@@ -700,7 +817,7 @@ async function startGame() {
     if (!isHost) return; // 客户端不读取角色卡，由主机读取后下发
 
     if (!mySelectedChar || !opponentChar) {
-        alert("角色选择数据异常，请重新选择");
+        alert(t('sys_char_data_err'));
         return;
     }
 
@@ -732,7 +849,7 @@ async function startGame() {
                 }))
             };
         } catch (e) {
-            console.error(`加载角色 ${id} 失败:`, e);
+            console.error(t('sys_load_char_fail', id), e);
             return { id: id, hp: 100, overflow: 0, skills: [] };
         }
     };
@@ -744,12 +861,12 @@ async function startGame() {
     // 主机读取地图文件
     try {
         const mResp = await fetch(`${MAP_PATH}${selectedMapId}.json?t=${Date.now()}`);
-        if (!mResp.ok) throw new Error("地图文件读取失败");
+        if (!mResp.ok) throw new Error(t('sys_map_load_fail'));
         const mData = await mResp.json();
         mapGrid = mData.grid;
         mapBgColor = mData.bgColor || '#e3c08d';
     } catch (e) {
-        console.error("读取地图失败:", e);
+        console.error(t('sys_map_load_fail'), e);
         mapGrid = Array(15).fill().map(() => Array(15).fill(0));
     }
 
@@ -776,7 +893,7 @@ atkModeBtn.addEventListener('click', () => {
 
 function resetMode() {
     isAtkMode = false;
-    atkModeBtn.innerText = "移动模式";
+    atkModeBtn.innerText = t('ui_move_mode');
     atkModeBtn.style.backgroundColor = "#ff5722";
 }
 
@@ -814,27 +931,27 @@ function updateHPDisplay() {
     const myMax = myStats.overflow;
     const oppMax = oppStats.overflow;
 
-    const myOverflowText = myMax > 0 ? `${myOverflowPoints}/${myMax}` : "0 (不可用)";
-    const oppOverflowText = oppMax > 0 ? `${oppOverflowPoints}/${oppMax}` : "0 (不可用)";
+    const myOverflowText = myMax > 0 ? `${myOverflowPoints}/${myMax}` : t('ui_overflow_not_avail');
+    const oppOverflowText = oppMax > 0 ? `${oppOverflowPoints}/${oppMax}` : t('ui_overflow_not_avail');
     const myMVText = myMovePoints > 0 ? ` + 🏃${myMovePoints}` : "";
     
-    const myColorName = myColor === 'black' ? '蓝色' : '红色';
-    const myText = `我方(${myColorName}): ${myStats.name || myStats.id} (HP:${myStats.hp} 溢出:${myOverflowText}${myMVText})`;
-    const oppText = `敌方: ${oppStats.name || oppStats.id} (HP:${oppStats.hp} 溢出:${oppOverflowText})`;
+    const myColorName = myColor === 'black' ? t('ui_color_blue') : t('ui_color_red');
+    const myText = `${t('log_side_me')}(${myColorName}): ${t(myStats.name) || myStats.id} (HP:${myStats.hp} ${t('stat_overflow')}:${myOverflowText}${myMVText})`;
+    const oppText = `${t('log_side_opp')}: ${t(oppStats.name) || oppStats.id} (HP:${oppStats.hp} ${t('stat_overflow')}:${oppOverflowText})`;
 
     gameInfoText.innerText = `${myText} | ${oppText}`;
-    roundInfo.innerText = `第 ${currentRound} 轮`;
+    roundInfo.innerText = t('ui_round_info', currentRound);
 
     // 更新左侧下拉详情面板
-    document.getElementById('my-details-content').innerText = formatStats(myStats, '\n');
-    document.getElementById('opp-details-content').innerText = formatStats(oppStats, '\n');
+    document.getElementById('my-details-content').innerText = formatStats(myStats, '\n', true);
+    document.getElementById('opp-details-content').innerText = formatStats(oppStats, '\n', false);
 
     // 更新状态栏显示（包含当前护甲和 Buff 列表）
     const renderBuffs = (stats, isMe) => {
         const mp = isMe ? myMovePoints : oppMovePoints;
         let html = `
-            <div class="status-stat">🛡️ 护甲: ${calculateArmor(stats)}</div>
-            <div class="status-stat">🏃 移动点: ${mp}</div>
+            <div class="status-stat">${t('ui_armor_label', calculateArmor(stats))}</div>
+            <div class="status-stat">${t('ui_mp_label', mp)}</div>
         `;
         if (stats.activeBuffs && stats.activeBuffs.length > 0) {
             stats.activeBuffs.forEach(b => {
@@ -860,7 +977,7 @@ function updateHPDisplay() {
             const name = el.dataset.buffName;
             const config = buffRegistry[name];
             if (config && config.description) {
-                tip.innerText = `${config.displayName}: ${config.description}`;
+                tip.innerText = t(config.displayName) + ": " + t(config.description, config);
                 tip.style.display = 'block';
             }
         };
@@ -881,10 +998,10 @@ function updateHPDisplay() {
 
     // 更新模式按钮的文字和颜色
     if (isMyTurn) {
-        atkModeBtn.innerText = isAtkMode ? "攻击模式" : "移动模式";
+        atkModeBtn.innerText = isAtkMode ? t('ui_atk_mode') : t('ui_move_mode');
         atkModeBtn.style.backgroundColor = isAtkMode ? "#f44336" : "#ff5722";
     } else {
-        atkModeBtn.innerText = "移动模式";
+        atkModeBtn.innerText = t('ui_move_mode');
         atkModeBtn.style.backgroundColor = '#ccc';
     }
 
@@ -953,7 +1070,7 @@ confirmSkillBtn.addEventListener('click', () => {
     const losBlocked = (skill.rangeType === 'line') && isPathBlocked(myPos.r, myPos.c, targetR, targetC);
 
     if (isHost && !skill.isSecret) {
-        addLog(`[技能] 我方 施放了 [${skill.name}]`, '#9c27b0');
+        addLog(t('log_skill_confirm', t('log_side_me'), skill.name), '#9c27b0');
     }
 
     // 处理区域效果 (如箭雨)
@@ -972,7 +1089,7 @@ confirmSkillBtn.addEventListener('click', () => {
         };
         mapEffects.push(newArea);
 
-        addLog(`[区域] 我方 施放了 ${skill.name}，持续 ${areaEffectConfig.duration} 轮`, '#9c27b0');
+        addLog(t('log_area_cast', t('log_side_me'), skill.name, areaEffectConfig.duration), '#9c27b0');
 
         // 调用区域 onStart 效果
         const areaLogic = areaRegistry[areaEffectConfig.name];
@@ -988,21 +1105,25 @@ confirmSkillBtn.addEventListener('click', () => {
             const armor = calculateArmor(oppStats);
             let finalDmg = getSkillFinalDamage(skill, oppStats);
 
-            // 灵活脚本逻辑：检查是否有对应的技能脚本处理特殊效果
-            const logic = skillRegistry[skill.script];
-            if (logic && typeof logic.onHit === 'function') {
-                const result = logic.onHit(oppStats, skill);
-                if (result && result.bonusDamage) finalDmg += result.bonusDamage;
-                if (result && result.log) addLog(result.log, '#9c27b0');
+            // 升级后的组件化脚本逻辑：支持多个脚本顺序执行
+            if (skill.scripts && Array.isArray(skill.scripts)) {
+                skill.scripts.forEach(sRef => {
+                    const logic = skillRegistry[sRef.name];
+                    if (logic && typeof logic.onHit === 'function') {
+                        const result = logic.onHit(oppStats, skill, sRef.props);
+                        if (result && result.bonusDamage) finalDmg += result.bonusDamage;
+                        if (result && result.log) addLog(result.log, '#9c27b0');
+                    }
+                });
             }
 
             applyDamage(oppStats, finalDmg, 'skill');
             if (isHost && !skill.isSecret) {
-                addLog(`[命中] 敌方 受到 ${finalDmg} 点有效伤害 (已扣除护甲值: ${armor})`);
+                addLog(t('log_hit_skill', t('log_side_opp'), finalDmg, armor));
             }
             applyBuffFromSkill(oppStats, skill);
         } else if (isHost && !skill.isSecret) {
-            addLog(`[闪避] 目标身形变幻，成功避开了本次技能打击！`, '#666');
+            addLog(t('log_miss_skill'), '#666');
         }
     }
     
@@ -1073,7 +1194,10 @@ function getSkillFinalDamage(skill, targetStats) {
 
     // 允许 Buff 修改收到的最终伤害（例如：减伤 50% 或 易伤 +5）
     let finalBaseDmg = 0;
-    if (typeof dmg === 'string' && String(dmg).includes('*')) {
+    if (Array.isArray(dmg)) {
+        base = parseInt(dmg[0]) || 0;
+        hits = parseInt(dmg[1]) || 1;
+    } else if (typeof dmg === 'string' && String(dmg).includes('*')) {
         const parts = String(dmg).split('*');
         base = parseInt(parts[0]) || 0;
         hits = parseInt(parts[1]) || 0;
@@ -1156,7 +1280,8 @@ function applyBuffFromSkill(targetStats, skill) {
     } else {
         // 如果没有 buffEffect 字段，则回退到解析 desc 字段 (兼容旧技能)
         const text = skill.desc || "";
-        const match = text.match(/施加(\d+)回合(\d+)(\S+)/);
+        const regexPattern = t('buff_parse_regex');
+        const match = text.match(new RegExp(regexPattern));
         if (!match) return; // 没有匹配到 Buff 描述
         duration = parseInt(match[1]);
         stacks = parseInt(match[2]);
@@ -1186,9 +1311,9 @@ function applyBuffFromSkill(targetStats, skill) {
     if (isHost) {
         const cfg = buffRegistry[buffName];
         if (!skill.isSecret && !(cfg && cfg.hide)) {
-            const targetName = (targetStats === myStats) ? '我方' : '敌方';
-            const displayName = (cfg && cfg.displayName) ? cfg.displayName : buffName;
-            addLog(`[状态] ${targetName} 成功加持效果 [${displayName}]，持续 ${duration} 轮`);
+            const targetName = (targetStats === myStats) ? t('log_side_me') : t('log_side_opp');
+                const displayName = (cfg && cfg.displayName) ? t(cfg.displayName) : buffName;
+            addLog(t('log_area_cast', targetName, displayName, duration));
         }
     }
 }
@@ -1200,11 +1325,11 @@ function ensureBuffLoaded(name) {
     script.id = `buff-js-${name}`;
     script.src = `buff/${name}.js`;
     script.onload = () => {
-        console.log(`Buff脚本加载成功: ${name}`);
+        console.log(t('sys_buff_load', name));
         updateHPDisplay(); // 加载成功后立即刷新UI以显示中文名和图标
     };
     script.onerror = () => {
-        console.error(`[加载失败] 找不到 Buff 脚本: ${script.src}。请检查文件是否存在于 buff/ 文件夹下，且文件名是否完全一致。`);
+        console.error(t('sys_buff_load_fail', script.src));
         // 加载失败时移除该标签，防止重复尝试
         script.remove();
     };
@@ -1222,9 +1347,9 @@ function ensureAreaLoaded(name) {
     const script = document.createElement('script');
     script.id = `area-js-${name}`;
     script.src = `area/${name}.js`;
-    script.onload = () => { console.log(`区域脚本加载成功: ${name}`); drawCharacters(); };
+    script.onload = () => { console.log(t('sys_area_load', name)); drawCharacters(); };
     script.onerror = () => {
-        console.error(`[加载失败] 找不到区域脚本: ${script.src}。请检查 area/ 文件夹。`);
+        console.error(t('sys_area_load_fail', script.src));
         script.remove();
     };
     document.head.appendChild(script);
@@ -1240,7 +1365,7 @@ function ensureSkillLoaded(name) {
     const script = document.createElement('script');
     script.id = `skill-js-${name}`;
     script.src = `skill/${name}.js`;
-    script.onload = () => console.log(`技能脚本加载成功: ${name}`);
+    script.onload = () => console.log(t('sys_skill_load', name));
     script.onerror = () => script.remove();
     document.head.appendChild(script);
 
@@ -1352,7 +1477,20 @@ function startMyTurn() {
             [myStats, oppStats].forEach(stats => {
                 if (stats.skills) {
                     stats.skills.forEach(s => { 
-                        if (s.cdCurrent === 1) addLog(`[技能] ${stats.name === myStats.name ? '我方' : '敌方'} 的战技 [${s.name}] 冷却完毕`, '#4caf50');
+                    if (s.cdCurrent === 1) {
+                        const sideName = stats === myStats ? t('log_side_me') : t('log_side_opp');
+                        const logMsg = t('log_skill_ready', sideName, s.name);
+                        
+                        if (!s.isSecret) {
+                            addLog(logMsg, '#4caf50');
+                        } else if (stats === myStats) {
+                            addLog(logMsg, '#4caf50', false); // 仅本地记录，不广播
+                        } else if (isHost) {
+                            // 主机发现客户端的暗置技能好了，私发给客户端
+                            let clientMsg = logMsg.replace(t('log_side_opp'), t('log_side_me'));
+                            conn.send({ type: 'log_msg', msg: clientMsg, color: '#4caf50' });
+                        }
+                    }
                         if (s.cdCurrent > 0) s.cdCurrent--; 
                     });
                 }
@@ -1400,20 +1538,20 @@ function startMyTurn() {
     if (isMyTurn) {
         myActionPoints = 1; // 核心修改：每回合开始 AP 重置为 1，不储存
         myMovePoints = bonusMP; // 应用 Buff 计算出的移动点
-        if (bonusMP > 0) addLog(`[行动] 回合开始，我方 获得 ${bonusMP} 点移动点`, '#607d8b');
+        if (bonusMP > 0) addLog(t('log_gain_mp', t('log_side_me'), bonusMP), '#607d8b');
 
         const threshold = parseInt(myStats.overflow) || 0;
 
         if (threshold > 0 && !canGainOverflow) {
-            addLog(`[状态] 我方 无法获得溢出点`, '#607d8b');
+            addLog(t('log_no_overflow', t('log_side_me')), '#607d8b');
         } else if (threshold > 0 && currentTile !== 3) { // 泥泞地块检查
             myOverflowPoints++;
             if (myOverflowPoints >= threshold) { 
                 myOverflowPoints = 0; // 溢出满，设为 0
                 myActionPoints++; 
-                addLog(`[行动] 我方 溢出满，额外获得 1 点行动点`, '#4caf50', true);
+                addLog(t('log_overflow_full', t('log_side_me')), '#4caf50', true);
             } else {
-                addLog(`[行动] 我方 溢出点数增加 (${myOverflowPoints}/${threshold})`, '#333', true); 
+                addLog(t('log_overflow_inc', t('log_side_me'), myOverflowPoints, threshold), '#333', true); 
             }
         }
     } else {
@@ -1423,15 +1561,15 @@ function startMyTurn() {
         const threshold = parseInt(oppStats.overflow) || 0;
 
         if (threshold > 0 && !canGainOverflow) {
-            addLog(`[状态] 敌方 无法获得溢出点`, '#607d8b');
+            addLog(t('log_no_overflow', t('log_side_opp')), '#607d8b');
         } else if (threshold > 0 && currentTile !== 3) { // 泥泞地块检查
             oppOverflowPoints++;
             if (oppOverflowPoints >= threshold) { 
                 oppOverflowPoints = 0; // 溢出满，设为 0
                 oppActionPoints++;
-                addLog(`[行动] 敌方 溢出满，额外获得 1 点行动点`, '#e65100', true);
+                addLog(t('log_overflow_full', t('log_side_opp')), '#e65100', true);
             } else {
-                addLog(`[行动] 敌方 溢出点数增加 (${oppOverflowPoints}/${threshold})`, '#333', true);
+                addLog(t('log_overflow_inc', t('log_side_opp'), oppOverflowPoints, threshold), '#333', true);
             }
         }
     }
@@ -1463,12 +1601,12 @@ function settleMapEffects(ownerColor) {
                 // 修复：检查目标是否拥有“无法命中/隐蔽”效果
                 const isInvincible = stats.activeBuffs && stats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
                 if (isInvincible) {
-                    addLog(`[闪避] ${(stats === myStats ? '我方' : '敌方')} 处于隐蔽状态，避开了 ${effect.displayName} 的区域伤害`, '#666');
+                    addLog(t('log_miss_area', (stats === myStats ? t('log_side_me') : t('log_side_opp')), effect.displayName), '#666');
                 } else {
                     const armor = calculateArmor(stats);
                     const finalDmg = Math.max(0, res.damage - armor);
                     applyDamage(stats, finalDmg, 'area_recurring');
-                    addLog(`[区域] ${(stats === myStats ? '我方' : '敌方')} 受到 ${effect.displayName}伤害 ${finalDmg} (护甲抵扣: ${armor})`, '#d32f2f');
+                    addLog(t('log_area_dmg', (stats === myStats ? t('log_side_me') : t('log_side_opp')), effect.displayName, finalDmg, armor), '#d32f2f');
                 }
             }
         }
@@ -1477,8 +1615,8 @@ function settleMapEffects(ownerColor) {
         const dTiming = config.durationTiming || 'casterTurnEnd';
         if (dTiming === currentTiming) {
             effect.duration--;
-            if (effect.duration > 0) addLog(`[区域] ${effect.displayName} 剩余 ${effect.duration} 轮`, '#666');
-            else addLog(`[区域] ${effect.displayName} 效力耗尽消失`, '#666');
+            if (effect.duration > 0) addLog(t('log_area_remain', effect.displayName, effect.duration), '#666');
+            else addLog(t('log_area_expired', effect.displayName), '#666');
         }
     });
     mapEffects = mapEffects.filter(e => e.duration > 0);
@@ -1894,9 +2032,9 @@ function handleRemoteAction(data) {
                         const armor = calculateArmor(myStats);
                         let finalDmg = (oppStats.atkDmg || 20) - armor;
                         applyDamage(myStats, finalDmg, 'attack');
-                        addLog(`[命中] 敌方 发起普攻，命中 我方 造成 ${finalDmg} 伤害 (抵扣护甲: ${armor})`);
+                        addLog(t('log_hit_normal', t('log_side_opp'), t('log_side_me'), finalDmg, armor));
                     } else {
-                        addLog(`[闪避] 敌方的进攻落空了，我方 未受损伤。`, '#666');
+                        addLog(t('log_miss_normal', t('log_side_opp'), t('log_side_me')), '#666');
                     }
                     oppActionPoints--;
                     validAction = true;
@@ -1907,7 +2045,7 @@ function handleRemoteAction(data) {
                     const targetTile = mapGrid[row][col];
                     if (targetTile !== 1 && targetTile !== 2) {
                         oppPos = { r: row, c: col };
-                        addLog(`[行动] 敌方 移动至坐标 [${row}, ${col}]`, '#607d8b');
+                        addLog(t('log_move', t('log_side_opp'), row, col), '#607d8b');
                         if (oppMovePoints > 0) oppMovePoints--; else oppActionPoints--;
                         validAction = true;
                     }
@@ -2001,7 +2139,7 @@ function checkGameOver() {
 
     if (iDied && oppDied) {
         gameActive = false;
-        statusDiv.innerText = "对局结束，双方同归于尽，平局！";
+        statusDiv.innerText = t('log_game_over_draw');
         statusDiv.style.backgroundColor = "#fff3e0";
         statusDiv.style.color = "#ef6c00";
         returnBtn.style.display = 'block';
@@ -2009,8 +2147,8 @@ function checkGameOver() {
         return true;
     } else if (iDied || oppDied) {
         gameActive = false;
-        const winner = oppDied ? "我方" : "敌方";
-        statusDiv.innerText = `对局结束，${winner} 获胜！`;
+        const winner = oppDied ? t('log_side_me') : t('log_side_opp');
+        statusDiv.innerText = t('log_game_over_win', winner);
         statusDiv.style.backgroundColor = "#ffebee";
         statusDiv.style.color = "#d32f2f";
         returnBtn.style.display = 'block';
@@ -2023,7 +2161,7 @@ function checkGameOver() {
 function updateStatusText() {
     if (!gameActive) return;
     const isMyTurn = (currentTurn === myColor);
-    statusDiv.innerText = isMyTurn ? `轮到我方 (AP: ${myActionPoints})` : "敌方回合中...";
+    statusDiv.innerText = isMyTurn ? t('ui_status_my_turn', myActionPoints) : t('ui_status_opp_turn');
 }
 
 // 8. 鼠标点击事件
@@ -2070,9 +2208,9 @@ canvas.addEventListener('mousedown', (e) => {
                     const armor = calculateArmor(oppStats);
                     let finalDmg = (myStats.atkDmg || 20) - armor;
                     applyDamage(oppStats, finalDmg, 'attack');
-                    addLog(`[命中] 我方 发起普攻，命中 敌方 造成 ${finalDmg} 伤害 (抵扣护甲: ${armor})`);
+                    addLog(t('log_hit_normal', t('log_side_me'), t('log_side_opp'), finalDmg, armor));
                 } else {
-                    addLog(`[闪避] 我方的进攻落空了，敌方 未受损伤。`, '#666');
+                    addLog(t('log_miss_normal', t('log_side_me'), t('log_side_opp')), '#666');
                 }
                 myActionPoints--;
                 selectedTargetPos = null;
@@ -2082,7 +2220,7 @@ canvas.addEventListener('mousedown', (e) => {
             const targetTile = mapGrid[row][col];
             if (targetTile !== 1 && targetTile !== 2) {
                 myPos = { r: row, c: col }; 
-                addLog(`[行动] 我方 移动至坐标 [${row}, ${col}]`, '#607d8b');
+                addLog(t('log_move', t('log_side_me'), row, col), '#607d8b');
                 if (myMovePoints > 0) myMovePoints--; else myActionPoints--;
             }
         }
@@ -2112,15 +2250,15 @@ canvas.addEventListener('mousedown', (e) => {
 copyBtn.addEventListener('click', () => {
     const id = myIdDisplay.innerText;
     navigator.clipboard.writeText(id).then(() => {
-        alert("ID 已复制到剪贴板");
+        alert(t('msg_copied'));
     });
 });
 
 // 辅助：重置游戏
 function resetGame() {
     const logBox = document.getElementById('game-log');
-    if (logBox) logBox.innerHTML = '<div style="color: #999; text-align: center;">--- 战斗记录 ---</div>';
-    addLog("对局初始化成功", "#2196f3");
+    if (logBox) logBox.innerHTML = `<div style="color: #999; text-align: center;">${t('ui_log_header')}</div>`;
+    addLog(t('log_init_success'), "#2196f3");
 
     currentRound = 0;
     myActionPoints = 0;
@@ -2161,17 +2299,21 @@ canvas.addEventListener('mousemove', (e) => {
     if (matchingEffects.length > 0) {
         tip.innerHTML = matchingEffects.map(effect => 
             `<div style="margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #eee;">
-                <strong style="color:#e65100">区域效果: ${effect.displayName}</strong> (剩余 ${effect.duration} 轮)<br>${effect.description}
+                <strong style="color:#e65100">${t('ui_area_effect', effect.displayName)}</strong> (${t('log_area_remain', "", effect.duration)})<br>${effect.description}
             </div>`
         ).join('');
         tip.style.display = 'block';
     } else {
-        if (tip.style.display === 'block' && tip.innerHTML.includes('区域效果')) {
+        if (tip.style.display === 'block' && tip.innerHTML.includes(t('ui_area_effect', ''))) {
             tip.style.display = 'none';
         }
     }
 });
 
 // 启动
-drawBoard();
-initPeer();
+(async () => {
+    // 核心修复：必须先等待语言包加载完成
+    await loadLanguage('en_us');
+    drawBoard();
+    initPeer();
+})();
