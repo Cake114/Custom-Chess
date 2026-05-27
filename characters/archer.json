@@ -1,6 +1,6 @@
 {
     "id": "archer",
-    "name": "弓箭手",
+    "name": "char_archer_name",
     "hp": 80,
     "overflow": 3,
     "atkRange": 3,
@@ -8,47 +8,61 @@
     "atkDmg": 10,
     "skills": [
         {
-            "name": "泥潭陷阱",
+            "name": "skill_archer_s1_name",
             "cdMax": 6,
-            "desc": "对范围内目标施加3轮减速（无法叠加）",
+            "desc": "skill_archer_s1_desc",
             "consumeTurn": false,
             "range": 1,
             "rangeType": "round",
-            "rangeDesc": "自身中心3x3",
+            "rangeDesc": "skill_range_round",
+            "rangeArgs": 3,
             "damage": 0,
-            "effectDesc": "减速：移动点保持0，且回合开始时无法获得溢出点",
-            "buffEffect": {
-                "name": "slow",
-                "duration": 3,
-                "stacks": 1,
-                "stackable": false
-            }
+            "effectDesc": "buff_slow_desc",
+            "buffEffects": [
+                {
+                    "name": "slow",
+                    "duration": 3,
+                    "stacks": 1,
+                    "stackable": false
+                }
+            ]
         },
         {
-            "name": "净化箭矢",
+            "name": "skill_archer_s2_name",
             "cdMax": 8,
-            "desc": "射出净化箭矢，清除目标所有状态。每清除一种额外造成8点伤害。",
+            "desc": "skill_archer_s2_desc",
             "consumeTurn": false,
             "range": 4,
             "rangeType": "projectile",
+            "rangeDesc": "skill_range_linear",
             "damage": 10,
-            "script": "purifyArrow"
+            "scripts": [
+                {
+                    "name": "purify",
+                    "props": {
+                        "bonusPerBuff": 8,
+                        "logKey": "log_purify_arrow_hit"
+                    }
+                }
+            ]
         },
         {
-            "name": "箭雨",
+            "name": "skill_archer_s3_name",
             "cdMax": 11,
-            "desc": "展开2轮3x3箭雨造成15伤害",
+            "desc": "skill_archer_s3_desc",
             "consumeTurn": true,
             "range": 2,
             "rangeType": "area_placement",
-            "rangeDesc": "自身中心5x5",
+            "rangeDesc": "skill_range_round",
+            "rangeArgs": 5,
             "damage": 15,
-            "effectDesc": "敌方回合结束时，对箭雨内目标造成15伤害",
+            "effectDesc": "area_arrowRain_desc",
             "areaEffect": {
                 "name": "arrowRain",
                 "duration": 2,
                 "damage": 15,
                 "areaRange": 1,
+                "rangeArgs": 3,
                 "rangeType": "round"
             }
         }

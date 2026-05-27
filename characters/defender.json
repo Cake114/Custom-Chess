@@ -1,6 +1,6 @@
 {
     "id": "defender",
-    "name": "盾兵",
+    "name": "char_defender_name",
     "hp": 120,
     "overflow": 0,
     "atkRange": 1,

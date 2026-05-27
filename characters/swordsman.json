@@ -1,47 +1,50 @@
 {
     "id": "swordsman",
-    "name": "剑士",
+    "name": "char_swordsman_name",
     "hp": 100,
     "overflow": 3,
     "atkRange": 1,
     "atkDmg": 12,
     "skills": [
         {
-            "name": "旋风斩",
+            "name": "skill_swordsman_s1_name",
             "cdMax": 6, 
-            "desc": "对范围内目标造成8伤害3次",
+            "desc": "skill_swordsman_s1_desc",
             "consumeTurn": false,
             "range": 1,
             "rangeType": "round",
-            "rangeDesc": "自身中心3x3",
-            "damage": "8*3"
+            "rangeArgs": 3,
+            "rangeDesc": "skill_range_round",
+            "damage": [8, 3]
         },
         {
-            "name": "冲刺",
+            "name": "skill_swordsman_s2_name",
             "cdMax": 5,
-            "desc": "冲刺到终点，对路径敌人造成15伤害（无法穿过墙体，可以穿过水）",
+            "desc": "skill_swordsman_s2_desc",
             "consumeTurn": true,
             "range": 3,
             "rangeType": "rush",
-            "rangeDesc": "3",
+            "rangeDesc": "skill_range_linear",
             "damage": 15
         },
         {
-            "name": "破甲一击",
+            "name": "skill_swordsman_s3_name",
             "cdMax":10,
-            "desc": "造成20伤害，施加3轮4碎甲（不可叠加）",
+            "desc": "skill_swordsman_s3_desc",
             "consumeTurn": false,
-            "effectDesc": "碎甲：每层减少1点护甲", 
             "range": 1,
             "rangeType": "line",
-            "rangeDesc": "1",
+            "rangeDesc": "skill_range_linear",
             "damage": 20,
-            "buffEffect": {
-                "name": "armorShred",
-                "duration": 3,
-                "stacks": 4,
-                "stackable": false
-            }
+            "effectDesc": "buff_armorShred_desc",
+            "buffEffects": [
+                {
+                    "name": "armorShred",
+                    "duration": 3,
+                    "stacks": 4,
+                    "stackable": false
+                }
+            ]
         }
     ]
 }
