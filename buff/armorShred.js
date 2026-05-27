@@ -4,9 +4,9 @@
  */
 
 BuffSystem.register('armorShred', {
-    displayName: t('buff_armorShred_name'),
+    displayName: 'buff_armorShred_name',
     icon: '💔', 
-    description: t('buff_armorShred_desc'),
+    description: 'buff_armorShred_desc',
     effectTiming: 'continuous', 
 
     effect: {

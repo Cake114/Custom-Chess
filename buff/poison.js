@@ -1,20 +1,19 @@
 /**
  * 中毒 Buff：每轮结束时触发伤害
  */
+const POISON_VAL = 1; // 每一层造成的伤害值
 
 BuffSystem.register('poison', {
-    displayName: t('buff_poison_name'),
+    displayName: 'buff_poison_name',
     icon: '🤢',
-    description: t('buff_poison_desc'),
+    description: 'buff_poison_desc',
     effectTiming: 'turnEnd', // 触发时机：回合结束
     durationTiming: 'turnEnd',
 
     effect: (stats, stacks) => {
-        const dmg = stacks * 1;
+        const dmg = stacks * POISON_VAL;
         applyDamage(stats, dmg, 'buff_dot');
-        if (typeof addLog === 'function') {
-            const targetName = (stats === myStats) ? t('log_side_me') : t('log_side_opp');
-            addLog(t('log_poison_dmg', targetName, dmg), '#795548');
-        }
+        const targetSideKey = (stats === myStats) ? 'log_side_me' : 'log_side_opp';
+        addLog('log_poison_dmg', [targetSideKey, dmg], '#795548');
     }
 });
