@@ -113,28 +113,20 @@ function applyI18nToUI() {
     // Use data-i18n attributes for more flexible UI updates if present
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (i18n[key]) el.innerText = i18n[key];
+        if (i18n[key]) {
+            // 核心修复：如果 ID 已经生成（myPeerId 已赋值），则跳过对该元素的翻译更新
+            // 否则每次切换语言，DOM 中的 ID 都会被覆盖回“正在生成...”的翻译键值
+            if (el.id === 'my-id' && myPeerId) return;
+
+            if (el.tagName === 'INPUT') el.placeholder = i18n[key];
+            else el.innerText = i18n[key];
+        }
     });
 
-    // Fallback for existing specific selectors
-    const mainMenuTitle = document.querySelector('#main-menu h2');
-    if (mainMenuTitle) mainMenuTitle.innerText = i18n.ui_title;
-    
-    if (myIdDisplay && myIdDisplay.previousSibling) {
-        myIdDisplay.previousSibling.textContent = i18n.ui_my_id_label;
-    }
-    
-    copyBtn.innerText = i18n.ui_copy;
-    peerIdInput.placeholder = i18n.ui_input_placeholder;
-    connectBtn.innerText = i18n.ui_connect;
-    claimFirstBtn.innerText = i18n.ui_claim_first;
-    readyStatusText.innerText = i18n.ui_ready_status_waiting;
-    gameInfoText.innerText = "";
+    // 重置一些需要特殊处理的动态文本
+    if (gameInfoText) gameInfoText.innerText = "";
+    if (readyStatusText) readyStatusText.innerText = i18n.ui_ready_status_waiting;
 
-    const logHeader = document.querySelector('#game-log div');
-    if (logHeader) logHeader.innerText = i18n.ui_log_header;
-
-    returnBtn.innerText = i18n.ui_return_menu;
     if (window.location.protocol === 'file:') myIdDisplay.innerHTML = `<span style='color:red;'>${t('msg_security_err')}</span>`;
 }
 
@@ -239,6 +231,7 @@ let isHost = false; // 标记当前玩家是否为主机
 
 // 选人相关状态
 let mySelectedChar = null; // 默认不选择任何角色
+let myPeerId = null; // 缓存已生成的 Peer ID，确保语言切换时显示正确
 let selectedMapId = 'farmland'; // 默认地图
 let firstMoveColor = 'black'; // 当前确定的先手颜色
 let amIReady = false;
@@ -318,6 +311,7 @@ function initPeer() {
 
     // 当成功获取到自己的 ID 时触发
     peer.on('open', (id) => {
+        myPeerId = id;
         myIdDisplay.innerText = id;
     });
 

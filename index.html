@@ -363,7 +363,7 @@
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
-    <div id="orientation-warning"><h2>请将手机转至竖屏以进行游戏</h2></div>
+    <div id="orientation-warning"><h2 data-i18n="ui_orientation_warning">请将手机转至竖屏以进行游戏</h2></div>
 
     <!-- 语言切换按钮 -->
     <div id="lang-switcher" title="Switch Language">
@@ -373,14 +373,14 @@
 
     <!-- 主界面 -->
     <div id="main-menu" class="control-panel">
-        <h2 style="text-align: center; margin-top: 0;">自定义棋</h2>
+        <h2 style="text-align: center; margin-top: 0;" data-i18n="ui_title">自定义棋</h2>
         <div class="info-row">
-            <span>我的 ID: <strong id="my-id">正在生成...</strong></span>
-            <button id="copy-btn">复制</button>
+            <span><span data-i18n="ui_my_id_label">我的 ID: </span><strong id="my-id" data-i18n="ui_generating">正在生成...</strong></span>
+            <button id="copy-btn" data-i18n="ui_copy">复制</button>
         </div>
         <div class="info-row">
-            <input type="text" id="peer-id-input" placeholder="输入对方 ID">
-            <button id="connect-btn">连接</button>
+            <input type="text" id="peer-id-input" data-i18n="ui_input_placeholder" placeholder="输入对方 ID">
+            <button id="connect-btn" data-i18n="ui_connect">连接</button>
         </div>
         <p style="font-size: 0.9em; color: #666; text-align: center;">分享 ID 给好友，连接成功后将自动开始游戏。</p>
     </div>
@@ -398,12 +398,12 @@
             <div class="map-section">
                 <p data-i18n="ui_select_map">选择对局地图：</p>
                 <div id="map-group" class="map-group"></div>
-                <button id="debug-mode-btn" style="background-color: #607d8b; display: none; margin-bottom: 5px;">调试模式: 关</button>
-                <button id="claim-first-btn" style="background-color: #ff9800; width: 100%; margin-top: 10px;">我要先手</button>
+                <button id="debug-mode-btn" style="background-color: #607d8b; display: none; margin-bottom: 5px;" data-i18n="ui_debug_mode">调试模式: 关</button>
+                <button id="claim-first-btn" style="background-color: #ff9800; width: 100%; margin-top: 10px;" data-i18n="ui_claim_first">我要先手</button>
                 <p id="first-player-hint" style="color: #666; font-size: 0.8em; margin-top: 5px;">默认先手：我方</p>
             </div>
             <div id="opp-ready-hint" style="font-weight: bold; color: #f44336; margin-bottom: 5px;">对方状态：未准备</div>
-            <button id="ready-btn" style="width: 100%; max-width: 400px; height: 50px; font-size: 1.2em;">准备并开始</button>
+            <button id="ready-btn" style="width: 100%; max-width: 400px; height: 50px; font-size: 1.2em;" data-i18n="ui_ready_btn_select">请选择角色</button>
             <p id="ready-status" style="font-size: 0.8em; color: #888; margin-top: 5px;">等待双方点击开始...</p>
         </div>
     </div>
@@ -411,7 +411,7 @@
     <!-- 游戏界面 -->
     <div id="game-screen">
         <div id="round-info" style="font-size: 1.5em; font-weight: bold; color: #333; margin-bottom: 10px;">第 0 轮</div>
-        <div id="status">准备中...</div>
+        <div id="status" data-i18n="ui_preparing">准备中...</div>
         <div id="game-info-text" style="margin-bottom: 10px; font-size: 0.9em; color: #555; text-align: center;"></div>
         
         <div class="game-main-area">
@@ -420,8 +420,8 @@
                 <!-- 状态栏面板 -->
                 <div class="status-area">
                     <div style="display: flex; gap: 10px; width: 100%;">
-                        <div id="my-status-col" class="status-column"><strong>我方状态</strong><div class="status-list"></div></div>
-                        <div id="opp-status-col" class="status-column"><strong>敌方状态</strong><div class="status-list"></div></div>
+                        <div id="my-status-col" class="status-column"><strong data-i18n="ui_my_status">我方状态</strong><div class="status-list"></div></div>
+                        <div id="opp-status-col" class="status-column"><strong data-i18n="ui_opp_status">敌方状态</strong><div class="status-list"></div></div>
                     </div>
                     <!-- Buff 描述展示区域 -->
                     <div id="buff-desc-tip" style="background: #fff; border: 1px solid #ccc; padding: 5px; border-radius: 4px; font-size: 0.85em; display: none; width: 100%; box-sizing: border-box; color: #555; box-shadow: 0 2px 5px rgba(0,0,0,0.1);"></div>
@@ -429,11 +429,11 @@
                 <!-- 属性详情面板 -->
                 <div class="side-panel">
                     <details>
-                        <summary>我方详情</summary>
+                        <summary data-i18n="ui_my_details">我方详情</summary>
                         <div id="my-details-content" style="white-space: pre-wrap; padding-top: 5px;"></div>
                     </details>
                     <details>
-                        <summary>敌方详情</summary>
+                        <summary data-i18n="ui_opp_details">敌方详情</summary>
                         <div id="opp-details-content" style="white-space: pre-wrap; padding-top: 5px;"></div>
                     </details>
                 </div>
@@ -444,21 +444,21 @@
 
             <!-- 右侧操作面板 -->
             <div class="side-panel right" style="width: 360px;">
-                <button id="atk-mode-btn" style="background-color: #ccc; height: 45px;" disabled>移动模式</button>
-                <button id="end-turn-btn" style="background-color: #ccc; height: 45px;" disabled>结束回合</button>
+                <button id="atk-mode-btn" style="background-color: #ccc; height: 45px;" disabled data-i18n="ui_move_mode">移动模式</button>
+                <button id="end-turn-btn" style="background-color: #ccc; height: 45px;" disabled data-i18n="ui_end_turn">结束回合</button>
                 <div style="display: flex; gap: 10px; margin-top: 10px; align-items: stretch;">
                     <div id="skill-group" style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;"></div>
-                    <button id="confirm-skill-btn" style="background-color: #ccc; width: 60px; font-size: 0.9em; padding: 5px; display: none;" disabled>确定释放</button>
+                    <button id="confirm-skill-btn" style="background-color: #ccc; width: 60px; font-size: 0.9em; padding: 5px; display: none;" disabled data-i18n="ui_confirm_skill">确定释放</button>
                 </div>
                 <!-- 战斗记录区域 -->
                 <div id="game-log" class="game-log">
-                    <div style="color: #999; text-align: center;">--- 战斗记录 ---</div>
+                    <div style="color: #999; text-align: center;" data-i18n="ui_log_header">--- 战斗记录 ---</div>
                 </div>
             </div>
         </div>
 
         <div style="margin-top: 15px;">
-            <button id="return-btn" style="display: none; background-color: #f44336; width: 100%; max-width: 300px;">返回主菜单</button>
+            <button id="return-btn" style="display: none; background-color: #f44336; width: 100%; max-width: 300px;" data-i18n="ui_return_menu">返回主菜单</button>
         </div>
     </div>
 
