@@ -23,8 +23,9 @@ SkillSystem.register('purify', {
         return {
             bonusDamage: bonus,
             purifiedCount: count,
-            // 如果配置了 logKey，则根据模板生成特定的技能效果日志
-            log: (count > 0 && logKey) ? t(logKey, t(skill.name), count, bonus) : null
+            logKey: (count > 0 && logKey) ? logKey : null,
+            logArgs: (count > 0 && logKey) ? [skill.name, count, bonus] : [], // skill.name is the i18n key
+            logColor: '#9c27b0' // Default color for skill effects
         };
     }
 });
