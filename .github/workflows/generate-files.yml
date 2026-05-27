@@ -20,7 +20,7 @@ jobs:
           python -c "
           import os, json
           # 扫描的目标资源文件夹
-          target_dirs = ['buff', 'area', 'skill', 'characters', 'maps']
+          target_dirs = ['buff', 'area', 'skill', 'characters', 'maps', 'lang']
           file_list = {}
           for folder in target_dirs:
               if os.path.exists(folder) and os.path.isdir(folder):
