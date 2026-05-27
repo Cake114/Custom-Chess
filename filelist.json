@@ -24,6 +24,8 @@
     "forest.json"
   ],
   "lang": [
-    "test"
+    "en_us.json",
+    "test",
+    "zh_cn.json"
   ]
 }
