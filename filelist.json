@@ -21,5 +21,6 @@
   "maps": [
     "farmland.json",
     "forest.json"
-  ]
+  ],
+  "lang": []
 }
