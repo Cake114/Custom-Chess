@@ -25,8 +25,11 @@ const debugModeBtn = document.getElementById('debug-mode-btn');
 const LANG_PATH = 'lang/';
 let i18n = {};
 let currentLangCode = 'en_us'; // 默认使用英文
+let oppLangCode = 'en_us';    // 对方使用的语言代码
 
 function t(key, ...args) {
+    // If key is null or undefined, return empty string to prevent errors
+    if (!key) return "";
     let text = i18n[key] !== undefined ? i18n[key] : key;
     if (args.length === 0) return text;
 
@@ -73,6 +76,11 @@ async function loadLanguage(lang = 'en_us') {
             // 核心修复：语言加载后立即刷新 UI
             if (selectionScreen.style.display === 'flex') { renderCharButtons(); renderMapButtons(); }
             if (gameActive) { updateHPDisplay(); drawCharacters(); }
+
+            // 语言变更时同步给对方
+            if (conn && conn.open) {
+                conn.send({ type: 'sync_language', lang: lang });
+            }
         }
     } catch (e) { console.error("Language load failed:", e); }
 }
@@ -130,33 +138,41 @@ function applyI18nToUI() {
     if (window.location.protocol === 'file:') myIdDisplay.innerHTML = `<span style='color:red;'>${t('msg_security_err')}</span>`;
 }
 
-// 战斗日志系统 (移动到顶部确保全局可用)
-function addLog(msg, color = '#333', broadcast = true) {
+// Low-level function to append log entry to DOM
+function _addLogEntry(msg, color = '#333') {
     const logBox = document.getElementById('game-log');
     if (!logBox) return;
     const entry = document.createElement('div');
     entry.className = 'log-entry';
     entry.style.color = color;
     
-    const timeTag = `<span class="log-tag" style="color:#888">${t('log_round_tag', currentRound || 0)}</span>`;
+    const timeTag = `<span class="log-tag" style="color:#888">${t('log_round_tag', currentRound || 0)}</span>`; // currentRound is always translated locally
     entry.innerHTML = `${timeTag}${msg}`;
     
     logBox.appendChild(entry);
     logBox.scrollTop = logBox.scrollHeight; // 自动滚动到底部
+}
 
-    // 如果是主机且需要广播，则将信息同步给客户端
+// Helper to transform log arguments for the client's perspective
+function _transformLogArgsForClient(args) {
+    // This function transforms arguments for the client's perspective
+    // e.g., 'log_side_me' for host becomes 'log_side_opp' for client
+    // 'log_side_opp' for host becomes 'log_side_me' for client
+    if (!Array.isArray(args)) return [];
+    return args.map(arg => {
+        if (arg === 'log_side_me') return 'log_side_opp';
+        if (arg === 'log_side_opp') return 'log_side_me';
+        return arg; // Other arguments (keys, numbers, strings) are passed as-is
+    });
+}
+
+// Main function to add a log entry (handles translation and broadcasting)
+function addLog(logKey, args = [], color = '#333', broadcast = true) {
+    _addLogEntry(t(logKey, ...args), color); // Always display locally
+
     if (isHost && broadcast && conn && conn.open) {
-        /**
-         * 逻辑翻译：
-         * 主机看到的“我方” -> 客户端看到的应该是“敌方”
-         * 主机看到的“敌方” -> 客户端看到的应该是“我方”
-         */
-        let clientMsg = msg
-            .replace(new RegExp(t('log_side_me'), 'g'), "TEMP_PLACEHOLDER")
-            .replace(new RegExp(t('log_side_opp'), 'g'), t('log_side_me'))
-            .replace(/TEMP_PLACEHOLDER/g, t('log_side_opp'));
-            
-        conn.send({ type: 'log_msg', msg: clientMsg, color: color });
+        const clientArgs = _transformLogArgsForClient(args);
+        conn.send({ type: 'log_msg_i18n', key: logKey, args: clientArgs, color: color });
     }
 }
 
@@ -350,6 +366,11 @@ function setupConnection() {
         preloadGameScripts(); // 主机建立连接后立即预加载所有脚本
     }
 
+    // 连接建立后立即同步本地语言设置
+    if (conn && conn.open) {
+        conn.send({ type: 'sync_language', lang: currentLangCode });
+    }
+
     // 监听对方发送的数据
     conn.on('data', (data) => {
         if (data.type === 'action') {
@@ -365,9 +386,12 @@ function setupConnection() {
             ensureAreaLoaded(data.areaName);
         } else if (data.type === 'claim_first') {
             updateFirstMovePlayer(data.color);
-        } else if (data.type === 'log_msg') {
-            // 客户端接收主机发来的权威日志
-            addLog(data.msg, data.color, false); // false 表示客户端不再回传广播
+        } else if (data.type === 'sync_language') {
+            oppLangCode = data.lang;
+            console.log("Opponent language synced:", oppLangCode);
+        } else if (data.type === 'log_msg_i18n') {
+            // 核心修复：客户端接收主机发来的国际化 Key 和参数，并在本地进行翻译
+            addLog(data.key, data.args, data.color, false);
         } else if (data.type === 'ready_start') {
             isOpponentReady = true;
             opponentChar = data.character;
@@ -399,7 +423,7 @@ function setupConnection() {
         } else if (data.type === 'use_skill') {
             if (isHost) {
                 // 主机权威处理客户端释放技能：判定伤害、扣除 CD 和 AP
-                const skill = oppStats.skills && oppStats.skills[data.skillIndex];
+                const skill = oppStats.skills?.[data.skillIndex];
                 if (!skill) return;
                 const oppColor = (myColor === 'black' ? 'white' : 'black');
 
@@ -440,8 +464,8 @@ function setupConnection() {
                     mapEffects.push(newArea);
 
                     // 日志：敌方放置坐标、范围大小、持续时间
-                    const areaSizeDesc = getAreaSizeDescription(areaCfg.areaRange, areaCfg.rangeType);
-                    addLog(t('log_area_cast_pos', t('log_side_opp'), skill.name, targetR, targetC, areaSizeDesc, areaCfg.duration), '#d32f2f');
+                    const areaSizeDesc = getAreaSizeDescription(areaCfg.areaRange, areaCfg.rangeType); // This is a string, not a key
+                    addLog('log_area_cast_pos', ['log_side_opp', skill.name, targetR, targetC, areaSizeDesc, areaCfg.duration], '#d32f2f');
                     
                     // 调用区域 onStart 效果
                     const areaLogic = areaRegistry[areaCfg.name];
@@ -451,7 +475,7 @@ function setupConnection() {
                 }
 
                 if (!skill.isSecret) {
-                    addLog(t('log_skill_cast', t('log_side_opp'), skill.name), '#d32f2f');
+                    addLog('log_skill_cast', ['log_side_opp', skill.name], '#d32f2f');
                 }
 
                 // 修正：增加命中校验。如果目标处于“无法命中”状态，则不产生伤害和 Buff
@@ -467,19 +491,19 @@ function setupConnection() {
                                 const logic = skillRegistry[sRef.name];
                                 if (logic && typeof logic.onHit === 'function') {
                                     const result = logic.onHit(myStats, skill, sRef.props);
-                                    if (result && result.bonusDamage) finalDmg += result.bonusDamage;
-                                    if (result && result.log) addLog(result.log, '#9c27b0');
+                                    if (result?.bonusDamage) finalDmg += result.bonusDamage;
+                                    if (result?.logKey) addLog(result.logKey, result.logArgs, result.logColor);
                                 }
                             });
                         }
 
                         applyDamage(myStats, finalDmg, 'skill');
                         if (!skill.isSecret) {
-                            addLog(t('log_hit_skill', t('log_side_me'), finalDmg, armor));
+                            addLog('log_hit_skill', ['log_side_me', finalDmg, armor]);
                         }
                         applyBuffFromSkill(myStats, skill);
                     } else if (!skill.isSecret) {
-                        addLog(t('log_miss_me'), '#666');
+                        addLog('log_miss_me', [], '#666');
                     }
                 }
                 // 核心修改：技能不对释放者生效（除非是明确的自身强化技能 rangeType: self）
@@ -513,7 +537,7 @@ function setupConnection() {
             } else {
                 // 客户端同步主机的技能 CD
                 oppStats.skills[data.skillIndex].cdCurrent = oppStats.skills[data.skillIndex].cdMax;
-            }
+            } // No need to drawCharacters/updateHPDisplay here, it's done after the if/else
             drawCharacters(); updateHPDisplay();
             selectedTargetPos = null; // 客户端收到同步后清除目标
         }
@@ -534,7 +558,7 @@ function setupConnection() {
         selectedSkillIndex = null;
         selectedTargetPos = null;
         isAtkMode = false;
-        conn = null;
+        conn = null; // Ensure conn is nullified to prevent further use
         alert(t('ui_conn_error', ""));
         showMenu();
     });
@@ -710,13 +734,11 @@ function formatStats(s, sep, showSecret = false) {
     if (s.skills && s.skills.length > 0) {
         let skillCount = 1;
         s.skills.forEach((skill) => {
-            // 核心修复：如果是暗置技能且没有显示权限，则直接跳过该技能的渲染
-            if (skill.isSecret && !showSecret) return;
-
             const desc = skill.desc ? t(skill.desc, skill) : t('ui_no_desc');
-            const cdInfo = t('ui_skill_cd', t('stat_cd'), skill.cdCurrent !== undefined ? skill.cdCurrent : 0, skill.cdMax);
+            // 暗置技能在敌方详情中依然显示，但隐藏 CD 数值以增加策略性
+            const cdInfo = (skill.isSecret && !showSecret) ? "" : " " + t('ui_skill_cd', t('stat_cd'), skill.cdCurrent !== undefined ? skill.cdCurrent : 0, skill.cdMax);
             const typeInfo = skill.consumeTurn ? t('ui_skill_type_turn') : t('ui_skill_type_ap');
-            lines.push(`\n${t('ui_skill_prefix', skillCount++)}${t(skill.name)} ${cdInfo} [${typeInfo}]`);
+            lines.push(`\n${t('ui_skill_prefix', skillCount++)}${t(skill.name)}${cdInfo} [${typeInfo}]`);
             lines.push(t('ui_skill_desc_label', desc));
             lines.push(t('ui_skill_range_label', skill.rangeDesc ? t(skill.rangeDesc, skill) : t('ui_none')));
             lines.push(t('ui_skill_effect_label', skill.effectDesc ? t(skill.effectDesc, skill) : t('ui_none')));
@@ -826,8 +848,8 @@ async function startGame() {
             const resp = await fetch(`${CHAR_PATH}${id}.json?t=${Date.now()}`);
             if (!resp.ok) throw new Error(`文件不存在`);
             const data = await resp.json();
-            return {
-                ...data, // 包含角色卡中定义的所有属性
+            return { // Ensure all properties from char JSON are spread
+                ...data, 
                 name: data.name || data.id,
                 id: String(data.id || id),
                 hp: Number(data.hp) || 100,
@@ -907,7 +929,7 @@ function renderSkillButtons() {
     myStats.skills.forEach((skill, index) => {
         const btn = document.createElement('button');
         btn.style.height = '45px';
-        let btnText = skill.name;
+        let btnText = t(skill.name); // 修复：翻译技能名称
         if (skill.cdCurrent > 0) btnText += ` (${skill.cdCurrent})`;
         btn.innerText = btnText;
 
@@ -927,6 +949,12 @@ function renderSkillButtons() {
 function updateHPDisplay() {
     // 格式化显示：处理数值类型并显示进度
     const isMyTurn = (gameActive && currentTurn === myColor);
+
+    // 核心修复：自动模式切换
+    // 如果 AP 用完但还有移动点，且处于攻击模式，自动切回移动模式，防止操作被攻击模式锁定
+    if (isMyTurn && myActionPoints <= 0 && myMovePoints > 0 && isAtkMode) {
+        resetMode();
+    }
 
     const myMax = myStats.overflow;
     const oppMax = oppStats.overflow;
@@ -959,7 +987,7 @@ function updateHPDisplay() {
                 // 如果是隐藏 Buff 且当前渲染的是敌人状态，则跳过
                 if (!isMe && buffConfig && buffConfig.hide) return;
 
-                const displayName = buffConfig ? buffConfig.displayName : b.name;
+                const displayName = buffConfig ? t(buffConfig.displayName) : b.name; // 修复：翻译 Buff 名称
                 const icon = buffConfig ? buffConfig.icon : '✨';
                 // 使用 displayName 和 icon，添加类名以便识别悬停
                 html += `<div class="buff-item" data-buff-name="${b.name}" style="color: #d32f2f; font-size: 0.9em; margin-top:3px; cursor: help;">${icon} ${displayName} x${b.stacks} (${b.duration}轮)</div>`;
@@ -977,7 +1005,8 @@ function updateHPDisplay() {
             const name = el.dataset.buffName;
             const config = buffRegistry[name];
             if (config && config.description) {
-                tip.innerText = t(config.displayName) + ": " + t(config.description, config);
+                // 由于描述文本中已经自带有 Buff 名称前缀，此处直接显示描述内容即可，避免重复
+                tip.innerText = t(config.description, config);
                 tip.style.display = 'block';
             }
         };
@@ -1070,7 +1099,7 @@ confirmSkillBtn.addEventListener('click', () => {
     const losBlocked = (skill.rangeType === 'line') && isPathBlocked(myPos.r, myPos.c, targetR, targetC);
 
     if (isHost && !skill.isSecret) {
-        addLog(t('log_skill_confirm', t('log_side_me'), skill.name), '#9c27b0');
+        addLog('log_skill_cast', ['log_side_me', skill.name], '#9c27b0');
     }
 
     // 处理区域效果 (如箭雨)
@@ -1088,8 +1117,8 @@ confirmSkillBtn.addEventListener('click', () => {
             sourcePlayer: myColor // 标记是谁施放的区域效果
         };
         mapEffects.push(newArea);
-
-        addLog(t('log_area_cast', t('log_side_me'), skill.name, areaEffectConfig.duration), '#9c27b0');
+        // areaEffectConfig.displayName is already a key (e.g., 'area_arrowRain_name')
+        addLog('log_area_cast', ['log_side_me', areaEffectConfig.name, areaEffectConfig.duration], '#9c27b0');
 
         // 调用区域 onStart 效果
         const areaLogic = areaRegistry[areaEffectConfig.name];
@@ -1111,19 +1140,19 @@ confirmSkillBtn.addEventListener('click', () => {
                     const logic = skillRegistry[sRef.name];
                     if (logic && typeof logic.onHit === 'function') {
                         const result = logic.onHit(oppStats, skill, sRef.props);
-                        if (result && result.bonusDamage) finalDmg += result.bonusDamage;
-                        if (result && result.log) addLog(result.log, '#9c27b0');
+                                    if (result?.bonusDamage) finalDmg += result.bonusDamage;
+                                    if (result?.logKey) addLog(result.logKey, result.logArgs, result.logColor);
                     }
                 });
             }
 
             applyDamage(oppStats, finalDmg, 'skill');
             if (isHost && !skill.isSecret) {
-                addLog(t('log_hit_skill', t('log_side_opp'), finalDmg, armor));
+                            addLog('log_hit_skill', ['log_side_opp', finalDmg, armor]);
             }
             applyBuffFromSkill(oppStats, skill);
         } else if (isHost && !skill.isSecret) {
-            addLog(t('log_miss_skill'), '#666');
+                        addLog('log_miss_skill', [], '#666');
         }
     }
     
@@ -1154,11 +1183,11 @@ confirmSkillBtn.addEventListener('click', () => {
     if (skill.consumeTurn) {
         myActionPoints = 0;
         myMovePoints = 0;
-        endMyTurn();
+        if (isHost) endMyTurn(); // 只有主机本地操作时需要调用，客户端由主机在收到 use_skill 后自动处理
     } else {
         myActionPoints--;
         if (myActionPoints <= 0 && myMovePoints <= 0) {
-            endMyTurn();
+            if (isHost) endMyTurn(); // 同上，防止客户端在 AP 耗尽时发送重复的结束请求
         }
     }
 });
@@ -1267,55 +1296,59 @@ function executeBuffEffects(stats, buffRecord, timing) {
 
 // 通用 Buff 解析逻辑：寻找 "施加x回合y zzz" 格式
 function applyBuffFromSkill(targetStats, skill) {
-    let buffName, duration, stacks;
-    let isStackable = true; // 默认 Buff 是可叠加的
+    // 1. 统一收集需要施加的 Buff 列表 (支持数组 buffEffects 和单对象 buffEffect)
+    const rawEffects = skill.buffEffects || (skill.buffEffect ? [skill.buffEffect] : []);
+    let buffsToApply = rawEffects.map(eff => ({
+        name: eff.name,
+        duration: eff.duration || 1,
+        stacks: eff.stacks || 1,
+        stackable: eff.stackable !== false
+    }));
 
-    if (skill.buffEffect && skill.buffEffect.name) {
-        // 优先从 skill.buffEffect 字段获取 Buff 信息
-        buffName = skill.buffEffect.name;
-        duration = skill.buffEffect.duration || 1;
-        stacks = skill.buffEffect.stacks || 1;
-        // 严格以技能配置为准
-        isStackable = (skill.buffEffect.stackable !== false); 
-    } else {
-        // 如果没有 buffEffect 字段，则回退到解析 desc 字段 (兼容旧技能)
-        const text = skill.desc || "";
-        const regexPattern = t('buff_parse_regex');
-        const match = text.match(new RegExp(regexPattern));
-        if (!match) return; // 没有匹配到 Buff 描述
-        duration = parseInt(match[1]);
-        stacks = parseInt(match[2]);
-        buffName = match[3];
-    }
-
-    if (!targetStats.activeBuffs) targetStats.activeBuffs = [];
-    ensureBuffLoaded(buffName);
-
-    const sourceSkillName = skill.name;
-    if (isStackable === false) {
-        const existing = targetStats.activeBuffs.find(b => b.name === buffName && b.sourceSkillName === sourceSkillName);
-        if (existing) {
-            existing.duration = duration;
-            existing.stacks = stacks;
-            return;
+    // 2. 如果 JSON 字段不存在，尝试从描述文本正则解析 (兼容逻辑)
+    if (buffsToApply.length === 0) {
+        const text = skill.desc ? t(skill.desc, skill) : "";
+        const match = text.match(new RegExp(t('buff_parse_regex')));
+        if (match) {
+            buffsToApply.push({
+                name: match[3],
+                duration: parseInt(match[1]),
+                stacks: parseInt(match[2]),
+                stackable: true
+            });
         }
     }
 
-    const buffRecord = { name: buffName, duration, stacks, sourceSkillName };
-    targetStats.activeBuffs.push(buffRecord);
+    // 3. 逐个执行施加逻辑
+    buffsToApply.forEach(bInfo => {
+        const { name: buffName, duration, stacks, stackable: isStackable } = bInfo;
+        if (!targetStats.activeBuffs) targetStats.activeBuffs = [];
+        ensureBuffLoaded(buffName);
 
-    // 触发 Buff 的“开始”钩子 (onStart)
-    executeBuffEffects(targetStats, buffRecord, 'onStart');
-
-    // 只有主机可以生成 Buff 相关的日志，防止客户端本地重复记录
-    if (isHost) {
-        const cfg = buffRegistry[buffName];
-        if (!skill.isSecret && !(cfg && cfg.hide)) {
-            const targetName = (targetStats === myStats) ? t('log_side_me') : t('log_side_opp');
-                const displayName = (cfg && cfg.displayName) ? t(cfg.displayName) : buffName;
-            addLog(t('log_area_cast', targetName, displayName, duration));
+        const sourceSkillName = skill.name;
+        if (isStackable === false) {
+            const existing = targetStats.activeBuffs.find(b => b.name === buffName && b.sourceSkillName === sourceSkillName);
+            if (existing) {
+                existing.duration = duration;
+                existing.stacks = stacks;
+                return;
+            }
         }
-    }
+
+        const buffRecord = { name: buffName, duration, stacks, sourceSkillName };
+        targetStats.activeBuffs.push(buffRecord);
+        executeBuffEffects(targetStats, buffRecord, 'onStart');
+
+        if (isHost) {
+            const cfg = buffRegistry[buffName];
+            if (!skill.isSecret && !(cfg && cfg.hide)) {
+                const targetSide = (targetStats === myStats) ? 'log_side_me' : 'log_side_opp';
+                const casterSide = (targetStats === myStats) ? 'log_side_opp' : 'log_side_me';
+                const displayName = (cfg && cfg.displayName) ? cfg.displayName : buffName;
+                addLog('log_buff_applied', [casterSide, targetSide, displayName, duration]);
+            }
+        }
+    });
 }
 
 // 动态加载 Buff 脚本
@@ -1478,17 +1511,13 @@ function startMyTurn() {
                 if (stats.skills) {
                     stats.skills.forEach(s => { 
                     if (s.cdCurrent === 1) {
-                        const sideName = stats === myStats ? t('log_side_me') : t('log_side_opp');
-                        const logMsg = t('log_skill_ready', sideName, s.name);
+                        const sideNameKey = stats === myStats ? 'log_side_me' : 'log_side_opp';
                         
                         if (!s.isSecret) {
-                            addLog(logMsg, '#4caf50');
+                            addLog('log_skill_ready', [sideNameKey, s.name], '#4caf50');
                         } else if (stats === myStats) {
-                            addLog(logMsg, '#4caf50', false); // 仅本地记录，不广播
-                        } else if (isHost) {
-                            // 主机发现客户端的暗置技能好了，私发给客户端
-                            let clientMsg = logMsg.replace(t('log_side_opp'), t('log_side_me'));
-                            conn.send({ type: 'log_msg', msg: clientMsg, color: '#4caf50' });
+                            // Secret skill ready for self, only log locally (broadcast=false)
+                            addLog('log_skill_ready', [sideNameKey, s.name], '#4caf50', false);
                         }
                     }
                         if (s.cdCurrent > 0) s.cdCurrent--; 
@@ -1538,20 +1567,19 @@ function startMyTurn() {
     if (isMyTurn) {
         myActionPoints = 1; // 核心修改：每回合开始 AP 重置为 1，不储存
         myMovePoints = bonusMP; // 应用 Buff 计算出的移动点
-        if (bonusMP > 0) addLog(t('log_gain_mp', t('log_side_me'), bonusMP), '#607d8b');
-
+        addLog('log_gain_mp', ['log_side_me', bonusMP], '#607d8b');
         const threshold = parseInt(myStats.overflow) || 0;
 
         if (threshold > 0 && !canGainOverflow) {
-            addLog(t('log_no_overflow', t('log_side_me')), '#607d8b');
+            addLog('log_no_overflow', ['log_side_me'], '#607d8b');
         } else if (threshold > 0 && currentTile !== 3) { // 泥泞地块检查
             myOverflowPoints++;
             if (myOverflowPoints >= threshold) { 
-                myOverflowPoints = 0; // 溢出满，设为 0
-                myActionPoints++; 
-                addLog(t('log_overflow_full', t('log_side_me')), '#4caf50', true);
+                myOverflowPoints = 0; 
+                myActionPoints++;
+                addLog('log_overflow_full', ['log_side_me'], '#4caf50', true);
             } else {
-                addLog(t('log_overflow_inc', t('log_side_me'), myOverflowPoints, threshold), '#333', true); 
+                addLog('log_overflow_inc', ['log_side_me', myOverflowPoints, threshold], '#333', true); 
             }
         }
     } else {
@@ -1561,15 +1589,15 @@ function startMyTurn() {
         const threshold = parseInt(oppStats.overflow) || 0;
 
         if (threshold > 0 && !canGainOverflow) {
-            addLog(t('log_no_overflow', t('log_side_opp')), '#607d8b');
+            addLog('log_no_overflow', ['log_side_opp'], '#607d8b');
         } else if (threshold > 0 && currentTile !== 3) { // 泥泞地块检查
             oppOverflowPoints++;
             if (oppOverflowPoints >= threshold) { 
-                oppOverflowPoints = 0; // 溢出满，设为 0
-                oppActionPoints++;
-                addLog(t('log_overflow_full', t('log_side_opp')), '#e65100', true);
+                oppOverflowPoints = 0; 
+                oppActionPoints++; 
+                addLog('log_overflow_full', ['log_side_opp'], '#e65100', true);
             } else {
-                addLog(t('log_overflow_inc', t('log_side_opp'), oppOverflowPoints, threshold), '#333', true);
+                addLog('log_overflow_inc', ['log_side_opp', oppOverflowPoints, threshold], '#333', true);
             }
         }
     }
@@ -1601,12 +1629,13 @@ function settleMapEffects(ownerColor) {
                 // 修复：检查目标是否拥有“无法命中/隐蔽”效果
                 const isInvincible = stats.activeBuffs && stats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
                 if (isInvincible) {
-                    addLog(t('log_miss_area', (stats === myStats ? t('log_side_me') : t('log_side_opp')), effect.displayName), '#666');
+                    const targetSideKey = (stats === myStats ? 'log_side_me' : 'log_side_opp');
+                    addLog('log_miss_area', [targetSideKey, effect.displayName], '#666');
                 } else {
                     const armor = calculateArmor(stats);
                     const finalDmg = Math.max(0, res.damage - armor);
                     applyDamage(stats, finalDmg, 'area_recurring');
-                    addLog(t('log_area_dmg', (stats === myStats ? t('log_side_me') : t('log_side_opp')), effect.displayName, finalDmg, armor), '#d32f2f');
+                    addLog('log_area_dmg', [(stats === myStats ? 'log_side_me' : 'log_side_opp'), effect.displayName, finalDmg, armor], '#d32f2f');
                 }
             }
         }
@@ -1614,9 +1643,9 @@ function settleMapEffects(ownerColor) {
         // 2. 持续时间结算 (默认在施法者回合结束时减少)
         const dTiming = config.durationTiming || 'casterTurnEnd';
         if (dTiming === currentTiming) {
-            effect.duration--;
-            if (effect.duration > 0) addLog(t('log_area_remain', effect.displayName, effect.duration), '#666');
-            else addLog(t('log_area_expired', effect.displayName), '#666');
+            effect.duration--; // effect.displayName is a key
+            if (effect.duration > 0) addLog('log_area_remain', [effect.displayName, effect.duration], '#666');
+            else addLog('log_area_expired', [effect.displayName], '#666');
         }
     });
     mapEffects = mapEffects.filter(e => e.duration > 0);
@@ -2030,11 +2059,11 @@ function handleRemoteAction(data) {
                     const isMiss = myStats.activeBuffs && myStats.activeBuffs.some(b => buffRegistry[b.name]?.isMiss);
                     if (!isMiss) {
                         const armor = calculateArmor(myStats);
-                        let finalDmg = (oppStats.atkDmg || 20) - armor;
+                        let finalDmg = Math.max(0, (oppStats.atkDmg || 20) - armor); // Ensure damage is not negative
                         applyDamage(myStats, finalDmg, 'attack');
-                        addLog(t('log_hit_normal', t('log_side_opp'), t('log_side_me'), finalDmg, armor));
+                        addLog('log_hit_normal', ['log_side_opp', 'log_side_me', finalDmg, armor]);
                     } else {
-                        addLog(t('log_miss_normal', t('log_side_opp'), t('log_side_me')), '#666');
+                        addLog('log_miss_normal', ['log_side_opp', 'log_side_me'], '#666');
                     }
                     oppActionPoints--;
                     validAction = true;
@@ -2044,8 +2073,8 @@ function handleRemoteAction(data) {
                 if (distR + distC === 1) {
                     const targetTile = mapGrid[row][col];
                     if (targetTile !== 1 && targetTile !== 2) {
-                        oppPos = { r: row, c: col };
-                        addLog(t('log_move', t('log_side_opp'), row, col), '#607d8b');
+                        oppPos = { r: row, c: col }; // oppPos is updated locally on host
+                        addLog('log_move', ['log_side_opp', row, col], '#607d8b');
                         if (oppMovePoints > 0) oppMovePoints--; else oppActionPoints--;
                         validAction = true;
                     }
@@ -2107,7 +2136,7 @@ function handleRemoteAction(data) {
             currentRound = data.round; currentTurn = data.turn;
 
             if (data.actionType === 'game_over') checkGameOver();
-
+            // Ensure Buffs are loaded for proper display and effects
             if (myStats.activeBuffs) myStats.activeBuffs.forEach(b => ensureBuffLoaded(b.name));
             if (oppStats.activeBuffs) oppStats.activeBuffs.forEach(b => ensureBuffLoaded(b.name));
         }
@@ -2195,32 +2224,30 @@ canvas.addEventListener('mousedown', (e) => {
 
     if (isHost) {
         if (isAtkMode) {
-            if (myActionPoints <= 0) return;
-            
-            if (!checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) return;
+            if (myActionPoints > 0 && checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) {
+                const affected = getAffectedTiles(myPos.r, myPos.c, row, col, myStats.atkRange, atkType);
+                const hitOpp = affected.some(t => t.r === oppPos.r && t.c === oppPos.c);
 
-            const affected = getAffectedTiles(myPos.r, myPos.c, row, col, myStats.atkRange, atkType);
-            const hitOpp = affected.some(t => t.r === oppPos.r && t.c === oppPos.c);
-
-            if (hitOpp && (atkType === 'projectile' || !isPathBlocked(myPos.r, myPos.c, row, col))) {
-                const isMiss = oppStats.activeBuffs && oppStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
-                if (!isMiss) {
-                    const armor = calculateArmor(oppStats);
-                    let finalDmg = (myStats.atkDmg || 20) - armor;
-                    applyDamage(oppStats, finalDmg, 'attack');
-                    addLog(t('log_hit_normal', t('log_side_me'), t('log_side_opp'), finalDmg, armor));
-                } else {
-                    addLog(t('log_miss_normal', t('log_side_me'), t('log_side_opp')), '#666');
+                if (hitOpp && (atkType === 'projectile' || !isPathBlocked(myPos.r, myPos.c, row, col))) {
+                    const isMiss = oppStats.activeBuffs && oppStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
+                    if (!isMiss) {
+                        const armor = calculateArmor(oppStats);
+                        let finalDmg = Math.max(0, (myStats.atkDmg || 20) - armor);
+                        applyDamage(oppStats, finalDmg, 'attack');
+                        addLog('log_hit_normal', ['log_side_me', 'log_side_opp', finalDmg, armor]);
+                    } else {
+                        addLog('log_miss_normal', ['log_side_me', 'log_side_opp'], '#666');
+                    }
+                    myActionPoints--;
+                    selectedTargetPos = null;
                 }
-                myActionPoints--;
-                selectedTargetPos = null;
-            }
+            } // 这里是之前漏掉的闭合括号，用于闭合 if (myActionPoints > 0 ...)
         } else if (distR + distC === 1) {
             if (myActionPoints <= 0 && myMovePoints <= 0) return;
             const targetTile = mapGrid[row][col];
             if (targetTile !== 1 && targetTile !== 2) {
-                myPos = { r: row, c: col }; 
-                addLog(t('log_move', t('log_side_me'), row, col), '#607d8b');
+                myPos = { r: row, c: col }; // myPos is updated locally on host
+                addLog('log_move', ['log_side_me', row, col], '#607d8b');
                 if (myMovePoints > 0) myMovePoints--; else myActionPoints--;
             }
         }
@@ -2236,7 +2263,8 @@ canvas.addEventListener('mousedown', (e) => {
             startMyTurn();
         }
     } else {
-        if (isAtkMode) {
+        // 客户端逻辑同步优化：如果处于攻击模式但 AP 耗尽，或者点击范围不符，应允许发送移动请求
+        if (isAtkMode && myActionPoints > 0) {
             if (!checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) return;
         } else {
             const targetTile = mapGrid[row][col];
@@ -2257,8 +2285,8 @@ copyBtn.addEventListener('click', () => {
 // 辅助：重置游戏
 function resetGame() {
     const logBox = document.getElementById('game-log');
-    if (logBox) logBox.innerHTML = `<div style="color: #999; text-align: center;">${t('ui_log_header')}</div>`;
-    addLog(t('log_init_success'), "#2196f3");
+    if (logBox) logBox.innerHTML = `<div style="color: #999; text-align: center;">${t('ui_log_header')}</div>`; // ui_log_header is translated locally
+    addLog('log_init_success', [], "#2196f3");
 
     currentRound = 0;
     myActionPoints = 0;
@@ -2297,7 +2325,7 @@ canvas.addEventListener('mousemove', (e) => {
     const tip = document.getElementById('buff-desc-tip');
     
     if (matchingEffects.length > 0) {
-        tip.innerHTML = matchingEffects.map(effect => 
+        tip.innerHTML = matchingEffects.map(effect => // effect.displayName is a key
             `<div style="margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #eee;">
                 <strong style="color:#e65100">${t('ui_area_effect', effect.displayName)}</strong> (${t('log_area_remain', "", effect.duration)})<br>${effect.description}
             </div>`
