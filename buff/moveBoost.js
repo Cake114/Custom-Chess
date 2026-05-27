@@ -1,10 +1,11 @@
 /**
  * 准备 Buff：提供额外移动点
  */
+
 BuffSystem.register('moveBoost', {
-    displayName: '急速',
+    displayName: t('buff_moveBoost_name'),
     icon: '🏃',
-    description: '回合开始时额外获得1个移动点',
+    description: t('buff_moveBoost_desc'),
     effectTiming: 'turnStart', // 修正：在回合开始时生效
     durationTiming: 'turnEnd',
 
