@@ -1,6 +1,6 @@
 {
     "id": "farmland",
-    "name": "农田",
+    "name": "map_farmland",
     "bgColor": "#e3c08d",
     "grid": [
         [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
