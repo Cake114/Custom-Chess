@@ -423,7 +423,7 @@ function setupConnection() {
         } else if (data.type === 'char_info_res') {
             // 客户端收到查询结果
             const s = data.stats;
-            document.getElementById('char-preview').innerText = formatStats(s, ' | ', true);
+            document.getElementById('char-preview').innerHTML = formatStats(s, ' | ', true);
         } else if (data.type === 'sync_all_names') {
             charNames = data.names;
             AVAILABLE_CHARS = data.ids; // 同步角色 ID 列表
@@ -498,14 +498,14 @@ function setupConnection() {
                     const isMiss = myStats.activeBuffs && myStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
                     if (!isMiss) {
                         const armor = calculateArmor(myStats);
-                        let finalDmg = getSkillFinalDamage(skill, myStats);
+                        let finalDmg = getSkillFinalDamage(skill, myStats, oppStats);
 
                         // 升级后的组件化脚本逻辑：支持多个脚本顺序执行
                         if (skill.scripts && Array.isArray(skill.scripts)) {
                             skill.scripts.forEach(sRef => {
                                 const logic = skillRegistry[sRef.name];
                                 if (logic && typeof logic.onHit === 'function') {
-                                    const result = logic.onHit(myStats, skill, sRef.props);
+                                    const result = logic.onHit(myStats, skill, sRef.props, { targetR, targetC, originR: oppPos.r, originC: oppPos.c });
                                     if (result?.bonusDamage) finalDmg += result.bonusDamage;
                                     if (result?.logKey) addLog(result.logKey, result.logArgs, result.logColor);
                                 }
@@ -730,7 +730,7 @@ async function displayCharPreview(charId) {
     try {
         const resp = await fetch(`${CHAR_PATH}${charId}.json?t=${Date.now()}`);
         const data = await resp.json();
-        document.getElementById('char-preview').innerText = formatStats(data, ' | ', true);
+        document.getElementById('char-preview').innerHTML = formatStats(data, ' | ', true);
     } catch (e) { }
 }
 
@@ -756,7 +756,19 @@ function formatStats(s, sep, showSecret = false) {
             lines.push(`\n${t('ui_skill_prefix', skillCount++)}${t(skill.name)}${cdInfo} [${typeInfo}]`);
             lines.push(t('ui_skill_desc_label', desc));
             lines.push(t('ui_skill_range_label', skill.rangeDesc ? t(skill.rangeDesc, skill) : t('ui_none')));
-            lines.push(t('ui_skill_effect_label', skill.effectDesc ? t(skill.effectDesc, skill) : t('ui_none')));
+            const effectDescs = Array.isArray(skill.effectDesc) ? skill.effectDesc : (skill.effectDesc ? [skill.effectDesc] : []);
+            if (effectDescs.length > 0) {
+                effectDescs.forEach(ed => {
+                    // 支持对象格式 {"key": "...", "color": "..."} 或字符串格式
+                    const isObj = typeof ed === 'object' && ed !== null;
+                    const key = isObj ? ed.key : ed;
+                    const color = (isObj && ed.color) ? ed.color : 'inherit';
+
+                    lines.push(`<span style="color:${color}">${t('ui_skill_effect_label', t(key, skill))}</span>`);
+                });
+            } else {
+                lines.push(t('ui_skill_effect_label', t('ui_none')));
+            }
         });
     }
 
@@ -781,7 +793,7 @@ window.selectChar = function (char) {
     if (!mySelectedChar) {
         readyBtn.disabled = true;
         updateReadyButtonText();
-        document.getElementById('char-preview').innerText = '';
+        document.getElementById('char-preview').innerHTML = '';
     } else {
         readyBtn.disabled = false;
         readyBtn.innerText = t('ui_ready_btn_start');
@@ -986,8 +998,8 @@ function updateHPDisplay() {
     roundInfo.innerText = t('ui_round_info', currentRound);
 
     // 更新左侧下拉详情面板
-    document.getElementById('my-details-content').innerText = formatStats(myStats, '\n', true);
-    document.getElementById('opp-details-content').innerText = formatStats(oppStats, '\n', false);
+    document.getElementById('my-details-content').innerHTML = formatStats(myStats, '<br>', true);
+    document.getElementById('opp-details-content').innerHTML = formatStats(oppStats, '<br>', false);
 
     // 更新状态栏显示（包含当前护甲和 Buff 列表）
     const renderBuffs = (stats, isMe) => {
@@ -1021,7 +1033,7 @@ function updateHPDisplay() {
             const config = buffRegistry[name];
             if (config && config.description) {
                 // 由于描述文本中已经自带有 Buff 名称前缀，此处直接显示描述内容即可，避免重复
-                tip.innerText = t(config.description, config);
+                tip.innerHTML = t(config.description, config);
                 tip.style.display = 'block';
             }
         };
@@ -1147,14 +1159,14 @@ confirmSkillBtn.addEventListener('click', () => {
         const isMiss = oppStats.activeBuffs && oppStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
         if (!isMiss) {
             const armor = calculateArmor(oppStats);
-            let finalDmg = getSkillFinalDamage(skill, oppStats);
+            let finalDmg = getSkillFinalDamage(skill, oppStats, myStats);
 
             // 升级后的组件化脚本逻辑：支持多个脚本顺序执行
             if (skill.scripts && Array.isArray(skill.scripts)) {
                 skill.scripts.forEach(sRef => {
                     const logic = skillRegistry[sRef.name];
                     if (logic && typeof logic.onHit === 'function') {
-                        const result = logic.onHit(oppStats, skill, sRef.props);
+                        const result = logic.onHit(oppStats, skill, sRef.props, { targetR, targetC, originR: myPos.r, originC: myPos.c });
                                     if (result?.bonusDamage) finalDmg += result.bonusDamage;
                                     if (result?.logKey) addLog(result.logKey, result.logArgs, result.logColor);
                     }
@@ -1195,16 +1207,14 @@ confirmSkillBtn.addEventListener('click', () => {
     updateStatusText();
     sendState('state_sync');
 
+    // 核心修改：使用统一的延迟检测逻辑，确保放置类技能等操作完全结算
     if (skill.consumeTurn) {
         myActionPoints = 0;
         myMovePoints = 0;
-        if (isHost) endMyTurn(); // 只有主机本地操作时需要调用，客户端由主机在收到 use_skill 后自动处理
     } else {
         myActionPoints--;
-        if (myActionPoints <= 0 && myMovePoints <= 0) {
-            if (isHost) endMyTurn(); // 同上，防止客户端在 AP 耗尽时发送重复的结束请求
-        }
     }
+    if (isHost) checkAutoEndTurn();
 });
 
 // 处理“受伤”逻辑：带有关键词，可被 Buff 或技能钩子识别
@@ -1223,13 +1233,24 @@ function applyDamage(targetStats, amount, source) {
 }
 
 // 计算技能最终伤害，支持 x*y 格式并将护甲应用到每一发伤害上
-function getSkillFinalDamage(skill, targetStats) {
+function getSkillFinalDamage(skill, targetStats, attackerStats) {
     // 检查目标是否有“免疫伤害”或“无法命中”Buff
     if (targetStats.activeBuffs) {
         for (let b of targetStats.activeBuffs) {
             const cfg = buffRegistry[b.name];
             if (cfg && cfg.effect && (cfg.effect.modifyIncomingDamage || cfg.effect.isMiss)) return 0;
         }
+    }
+
+    // 核心新增：计算攻击者的伤害修正（如：虚弱）
+    let attackerMod = 0;
+    if (attackerStats && attackerStats.activeBuffs) {
+        attackerStats.activeBuffs.forEach(b => {
+            const cfg = buffRegistry[b.name];
+            if (cfg && cfg.effectTiming === 'continuous' && cfg.effect?.damageDealtMod) {
+                attackerMod += cfg.effect.damageDealtMod * b.stacks;
+            }
+        });
     }
 
     let armor = calculateArmor(targetStats);
@@ -1249,7 +1270,7 @@ function getSkillFinalDamage(skill, targetStats) {
         base = parseInt(dmg) || 0;
     }
 
-    finalBaseDmg = base - armor;
+    finalBaseDmg = Math.max(0, base + attackerMod) - armor;
     if (targetStats.activeBuffs) {
         // 按优先级排序：优先级高的（负面/覆盖类）后执行，确保最高优先级
         [...targetStats.activeBuffs]
@@ -1556,6 +1577,20 @@ function startMyTurn() {
     const currentTile = (mapGrid && mapGrid[pos.r]) ? mapGrid[pos.r][pos.c] : 0;
 
     // 个人回合结算逻辑
+    // 核心新增：回合开始时检查当前地块是否存在区域效果（如：圣光）
+    mapEffects.forEach(effect => {
+        const config = areaRegistry[effect.name];
+        if (config && config.effectTiming === 'opponentTurnStart') {
+            // 核心修复：判定当前开始回合的玩家(currentTurn)是否为该区域的施法者
+            const isOwnerTheCaster = (effect.sourcePlayer === currentTurn);
+            if (!isOwnerTheCaster) { // 仅对非施法者（即施法者的对手）生效
+                if (typeof config.effect.onTrigger === 'function') {
+                    config.effect.onTrigger(effect, stats, pos);
+                }
+            }
+        }
+    });
+
     let bonusMP = 0;
     let canGainOverflow = true; // 默认允许获得溢出点
     if (stats.activeBuffs) {
@@ -1698,16 +1733,39 @@ function endMyTurn() {
     if (currentTurn !== myColor) return;
 
     if (isHost) {
-        settleMapEffects(myColor); // 主机结束回合时结算自己施放的区域
-        // 主机直接操作
-        myActionPoints = 0;
-        currentTurn = (myColor === 'black' ? 'white' : 'black');
-        resetMode();
-        startMyTurn();
+        _executeHostTurnSwap(myColor);
     } else {
         // 客户端请求主机结束
         conn.send({ type: 'action', actionType: 'client_request_end' });
     }
+}
+
+// 新增：主机权威切换回合逻辑（统一处理结算和状态重置）
+function _executeHostTurnSwap(finishedColor) {
+    settleMapEffects(finishedColor);
+    if (finishedColor === myColor) myActionPoints = 0; else oppActionPoints = 0;
+    
+    currentTurn = (finishedColor === 'black' ? 'white' : 'black');
+    resetMode();
+    startMyTurn();
+}
+
+// 新增：延迟检查自动结束回合
+function checkAutoEndTurn() {
+    if (!isHost) return;
+    
+    // 延迟 50ms 确保微任务和状态更新（如 mapEffects.push）执行完毕
+    setTimeout(() => {
+        const stats = (currentTurn === myColor) ? myStats : oppStats;
+        const ap = (currentTurn === myColor) ? myActionPoints : oppActionPoints;
+        const mp = (currentTurn === myColor) ? myMovePoints : oppMovePoints;
+
+        if (ap <= 0 && mp <= 0) {
+            _executeHostTurnSwap(currentTurn);
+        } else {
+            sendState('state_sync');
+        }
+    }, 50);
 }
 
 endTurnBtn.addEventListener('click', endMyTurn);
@@ -1763,7 +1821,7 @@ function drawCharacters() {
         const skill = myStats.skills[selectedSkillIndex];
         // 修正：self 类型技能不要在棋盘展示范围
         if (skill.rangeType !== 'self') {
-            drawRangeHints(myPos.r, myPos.c, skill.range, 'rgba(156, 39, 176, 0.1)', skill.rangeType);
+            drawRangeHints(myPos.r, myPos.c, skill.range, 'rgba(156, 39, 176, 0.4)', skill.rangeType);
         }
 
         // 2. 如果已预选目标，根据技能/普攻类型高亮受影响的完整范围
@@ -1801,7 +1859,7 @@ function drawCharacters() {
     else if (gameActive && currentTurn === myColor && isAtkMode && selectedSkillIndex === null) {
         // 使用角色卡定义的普攻类型
         const atkType = myStats.atkRangeType || 'line';
-        drawRangeHints(myPos.r, myPos.c, myStats.atkRange, 'rgba(255, 0, 0, 0.1)', atkType);
+        drawRangeHints(myPos.r, myPos.c, myStats.atkRange, 'rgba(255, 0, 0, 0.3)', atkType);
 
         // 普攻模式下的方向预览高亮
         if (selectedTargetPos) {
@@ -1995,6 +2053,8 @@ function drawRangeHints(originR, originC, range, color, rangeType = 'cross') {
     const isProjectileType = ['line', 'linear', 'pierce', 'rush', 'projectile'].includes(rangeType);
 
     if (isProjectileType) {
+        // 弹道/直线类：首先高亮起始点（脚下）
+        drawCell(originR, originC);
         const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]]; // 右, 左, 下, 上
         directions.forEach(([dr, dc]) => {
             for (let i = 1; i <= range; i++) {
@@ -2013,7 +2073,7 @@ function drawRangeHints(originR, originC, range, color, rangeType = 'cross') {
     } else {
         for (let r = 0; r < GRID_SIZE; r++) {
             for (let c = 0; c < GRID_SIZE; c++) {
-                if (r === originR && c === originC) continue;
+                // 移除原有的 continue，允许 checkSkillRange 判定自身地块（如 range: 0 的情况）
                 if (checkSkillRange(originR, originC, r, c, range, rangeType)) {
                     if (!isPathBlocked(originR, originC, r, c)) {
                         drawCell(r, c);
@@ -2071,10 +2131,21 @@ function handleRemoteAction(data) {
                 const hitMe = affected.some(t => t.r === myPos.r && t.c === myPos.c);
 
                 if (hitMe && (atkType === 'projectile' || !isPathBlocked(oppPos.r, oppPos.c, row, col))) {
+                    // 计算敌方（攻击者）的伤害修正
+                    let attackerMod = 0;
+                    if (oppStats.activeBuffs) {
+                        oppStats.activeBuffs.forEach(b => {
+                            const cfg = buffRegistry[b.name];
+                            if (cfg && cfg.effectTiming === 'continuous' && cfg.effect?.damageDealtMod) {
+                                attackerMod += cfg.effect.damageDealtMod * b.stacks;
+                            }
+                        });
+                    }
+
                     const isMiss = myStats.activeBuffs && myStats.activeBuffs.some(b => buffRegistry[b.name]?.isMiss);
                     if (!isMiss) {
                         const armor = calculateArmor(myStats);
-                        let finalDmg = Math.max(0, (oppStats.atkDmg || 20) - armor); // Ensure damage is not negative
+                        let finalDmg = Math.max(0, Math.max(0, (oppStats.atkDmg || 20) + attackerMod) - armor);
                         applyDamage(myStats, finalDmg, 'attack');
                         addLog('log_hit_normal', ['log_side_opp', 'log_side_me', finalDmg, armor]);
                     } else {
@@ -2085,6 +2156,10 @@ function handleRemoteAction(data) {
                 }
             } else {
                 if (oppActionPoints <= 0 && oppMovePoints <= 0) return;
+                // 核心修复：检查敌方是否被束缚
+                const canMove = !oppStats.activeBuffs || !oppStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.canMove === false);
+                if (!canMove) return;
+
                 if (distR + distC === 1) {
                     const targetTile = mapGrid[row][col];
                     if (targetTile !== 1 && targetTile !== 2) {
@@ -2102,11 +2177,7 @@ function handleRemoteAction(data) {
                 updateStatusText();
                 sendState('state_sync');
 
-                if (oppActionPoints <= 0 && oppMovePoints <= 0) {
-                    settleMapEffects(oppColor);
-                    currentTurn = myColor;
-                    startMyTurn();
-                }
+                checkAutoEndTurn();
             }
         } else if (data.actionType === 'client_request_end') {
             const oppColor = (myColor === 'black' ? 'white' : 'black');
@@ -2226,6 +2297,8 @@ canvas.addEventListener('mousedown', (e) => {
         if (isFixed) return;
 
         if (checkSkillRange(myPos.r, myPos.c, row, col, skill.range, skill.rangeType)) {
+            // 核心修复：禁止距离不为0的弹道选择脚下的格子，强制选择方向
+            if (skill.rangeType === 'projectile' && skill.range > 0 && row === myPos.r && col === myPos.c) return;
             selectedTargetPos = { r: row, c: col };
             drawCharacters();
             updateHPDisplay();
@@ -2237,6 +2310,9 @@ canvas.addEventListener('mousedown', (e) => {
     const distC = Math.abs(col - myPos.c);
     const atkType = myStats.atkRangeType || 'line';
 
+    // 检查我方是否被束缚
+    const canIMove = !myStats.activeBuffs || !myStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.canMove === false);
+
     if (isHost) {
         if (isAtkMode) {
             if (myActionPoints > 0 && checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) {
@@ -2244,10 +2320,21 @@ canvas.addEventListener('mousedown', (e) => {
                 const hitOpp = affected.some(t => t.r === oppPos.r && t.c === oppPos.c);
 
                 if (hitOpp && (atkType === 'projectile' || !isPathBlocked(myPos.r, myPos.c, row, col))) {
+                    // 计算我方（攻击者）的伤害修正
+                    let attackerMod = 0;
+                    if (myStats.activeBuffs) {
+                        myStats.activeBuffs.forEach(b => {
+                            const cfg = buffRegistry[b.name];
+                            if (cfg && cfg.effectTiming === 'continuous' && cfg.effect?.damageDealtMod) {
+                                attackerMod += cfg.effect.damageDealtMod * b.stacks;
+                            }
+                        });
+                    }
+
                     const isMiss = oppStats.activeBuffs && oppStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.isMiss);
                     if (!isMiss) {
                         const armor = calculateArmor(oppStats);
-                        let finalDmg = Math.max(0, (myStats.atkDmg || 20) - armor);
+                        let finalDmg = Math.max(0, Math.max(0, (myStats.atkDmg || 20) + attackerMod) - armor);
                         applyDamage(oppStats, finalDmg, 'attack');
                         addLog('log_hit_normal', ['log_side_me', 'log_side_opp', finalDmg, armor]);
                     } else {
@@ -2258,6 +2345,7 @@ canvas.addEventListener('mousedown', (e) => {
                 }
             } // 这里是之前漏掉的闭合括号，用于闭合 if (myActionPoints > 0 ...)
         } else if (distR + distC === 1) {
+            if (!canIMove) return; // 束缚检查
             if (myActionPoints <= 0 && myMovePoints <= 0) return;
             const targetTile = mapGrid[row][col];
             if (targetTile !== 1 && targetTile !== 2) {
@@ -2272,16 +2360,13 @@ canvas.addEventListener('mousedown', (e) => {
         updateStatusText();
         sendState('state_sync');
 
-        if (myActionPoints <= 0 && myMovePoints <= 0) {
-            settleMapEffects(myColor);
-            currentTurn = (myColor === 'black' ? 'white' : 'black');
-            startMyTurn();
-        }
+        checkAutoEndTurn();
     } else {
         // 客户端逻辑同步优化：如果处于攻击模式但 AP 耗尽，或者点击范围不符，应允许发送移动请求
         if (isAtkMode && myActionPoints > 0) {
             if (!checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) return;
         } else {
+            if (!canIMove) return; // 束缚检查
             const targetTile = mapGrid[row][col];
             if (distR + distC !== 1 || targetTile === 1 || targetTile === 2) return;
         }
@@ -2340,11 +2425,13 @@ canvas.addEventListener('mousemove', (e) => {
     const tip = document.getElementById('buff-desc-tip');
     
     if (matchingEffects.length > 0) {
-        tip.innerHTML = matchingEffects.map(effect => // effect.displayName is a key
-            `<div style="margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #eee;">
-                <strong style="color:#e65100">${t('ui_area_effect', effect.displayName)}</strong> (${t('log_area_remain', "", effect.duration)})<br>${effect.description}
-            </div>`
-        ).join('');
+        tip.innerHTML = matchingEffects.map(effect => {
+            const descs = Array.isArray(effect.description) ? effect.description : [effect.description];
+            const descHtml = descs.map(d => t(d, effect)).join('<br>');
+            return `<div style="margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #eee;">
+                <strong style="color:#e65100">${t('ui_area_effect', effect.displayName)}</strong> (${t('log_area_remain', "", effect.duration)})<br>${descHtml}
+            </div>`;
+        }).join('');
         tip.style.display = 'block';
     } else {
         if (tip.style.display === 'block' && tip.innerHTML.includes(t('ui_area_effect', ''))) {
