@@ -10,7 +10,9 @@
     "arrowRain.js"
   ],
   "skill": [
-    "purify.js"
+    "purify.js",
+    "shieldBash.js",
+    "standGround.js"
   ],
   "characters": [
     "archer.json",
