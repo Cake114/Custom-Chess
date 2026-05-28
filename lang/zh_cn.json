@@ -188,5 +188,5 @@
   "skill_defender_s3_name": "死守不退",
   "skill_defender_s3_desc": "获得1AP，3轮6重甲和3轮束缚",
   "area_holyLight_name": "圣光",
-  "area_holyLight_desc": "<span style=\"color:#4caf50\">敌方回合开始时，对圣光内目标施加1轮6虚弱</span>"
+  "area_holyLight_desc": "<span style=\"color:#43a047\">敌方回合开始时，对圣光内目标施加1轮6虚弱</span>"
 }
