@@ -10,7 +10,8 @@
     "weakness.js"
   ],
   "area": [
-    "arrowRain.js"
+    "arrowRain.js",
+    "holyLight.js"
   ],
   "skill": [
     "purify.js",
