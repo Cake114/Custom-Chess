@@ -1,14 +1,14 @@
 {
     "id": "defender",
     "name": "char_defender_name",
-    "hp": 150,
-    "overflow": 4,
+    "hp": 120,
+    "overflow": 0,
     "atkRange": 1,
-    "atkDmg": 15,
+    "atkDmg": 12,
     "skills": [
         {
             "name": "skill_defender_s1_name",
-            "cdMax": 7,
+            "cdMax": 8,
             "desc": "skill_defender_s1_desc",
             "consumeTurn": false,
             "range": 1,
@@ -25,7 +25,7 @@
         },
         {
             "name": "skill_defender_s2_name",
-            "cdMax": 10,
+            "cdMax": 11,
             "desc": "skill_defender_s2_desc",
             "consumeTurn": false,
             "range": 0,
@@ -43,7 +43,7 @@
         },
         {
             "name": "skill_defender_s3_name",
-            "cdMax": 12,
+            "cdMax": 6,
             "desc": "skill_defender_s3_desc",
             "consumeTurn": true,
             "rangeType": "self",
