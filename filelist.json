@@ -1,10 +1,13 @@
 {
   "buff": [
     "armorShred.js",
+    "bind.js",
+    "heavyArmor.js",
     "invincible.js",
     "moveBoost.js",
     "poison.js",
-    "slow.js"
+    "slow.js",
+    "weakness.js"
   ],
   "area": [
     "arrowRain.js"
