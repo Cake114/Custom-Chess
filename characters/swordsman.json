@@ -36,7 +36,7 @@
             "rangeType": "line",
             "rangeDesc": "skill_range_linear",
             "damage": 20,
-            "effectDesc": "buff_armorShred_desc",
+            "effectDesc": ["buff_armorShred_desc"],
             "buffEffects": [
                 {
                     "name": "armorShred",

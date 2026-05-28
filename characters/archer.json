@@ -17,7 +17,7 @@
             "rangeDesc": "skill_range_round",
             "rangeArgs": 3,
             "damage": 0,
-            "effectDesc": "buff_slow_desc",
+            "effectDesc": ["buff_slow_desc"],
             "buffEffects": [
                 {
                     "name": "slow",
@@ -56,7 +56,7 @@
             "rangeDesc": "skill_range_round",
             "rangeArgs": 5,
             "damage": 15,
-            "effectDesc": "area_arrowRain_desc",
+            "effectDesc": ["area_arrowRain_desc"],
             "areaEffect": {
                 "name": "arrowRain",
                 "duration": 2,

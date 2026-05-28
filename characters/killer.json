@@ -14,7 +14,7 @@
             "range": 3,
             "rangeType": "projectile",
             "rangeDesc": "skill_range_linear",
-            "effectDesc": "buff_poison_desc",
+            "effectDesc": ["buff_poison_desc"],
             "damage": 6,
             "buffEffects": [
                 {
@@ -32,7 +32,7 @@
             "isSecret": true,
             "consumeTurn": false,
             "rangeType": "self",
-            "effectDesc": "buff_invincible_desc",
+            "effectDesc": ["buff_invincible_desc"],
             "buffEffects": [
                 {
                     "name": "invincible",
@@ -46,7 +46,7 @@
             "desc": "skill_killer_s3_desc",
             "consumeTurn": true,
             "rangeType": "self",
-            "effectDesc": "buff_moveBoost_desc",
+            "effectDesc": ["buff_moveBoost_desc"],
             "buffEffects": [
                 {
                     "name": "moveBoost",

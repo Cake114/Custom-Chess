@@ -1,8 +1,58 @@
 {
     "id": "defender",
     "name": "char_defender_name",
-    "hp": 120,
-    "overflow": 0,
+    "hp": 150,
+    "overflow": 4,
     "atkRange": 1,
-    "atkDmg": 14
+    "atkDmg": 15,
+    "skills": [
+        {
+            "name": "skill_defender_s1_name",
+            "cdMax": 7,
+            "desc": "skill_defender_s1_desc",
+            "consumeTurn": false,
+            "range": 1,
+            "rangeType": "projectile",
+            "rangeDesc": "skill_range_linear",
+            "effectDesc": ["buff_slow_desc"],
+            "damage": 15,
+            "scripts": [
+                {
+                    "name": "shieldBash",
+                    "props": { "knockback": 2, "slamDamage": 15 }
+                }
+            ]
+        },
+        {
+            "name": "skill_defender_s2_name",
+            "cdMax": 10,
+            "desc": "skill_defender_s2_desc",
+            "consumeTurn": false,
+            "range": 0,
+            "rangeType": "area_placement",
+            "rangeDesc": "skill_range_round",
+            "effectDesc": ["area_holyLight_desc","buff_weakness_desc"],
+            "rangeArgs": 1,
+            "areaEffect": {
+                "name": "holyLight",
+                "duration": 3,
+                "areaRange": 2,
+                "rangeType": "round",
+                "rangeArgs": 5
+            }
+        },
+        {
+            "name": "skill_defender_s3_name",
+            "cdMax": 12,
+            "desc": "skill_defender_s3_desc",
+            "consumeTurn": true,
+            "rangeType": "self",
+            "scripts": [{ "name": "standGround" }],
+            "effectDesc": ["buff_bind_desc", "buff_heavyArmor_desc"],
+            "buffEffects": [
+                { "name": "bind", "duration": 3, "stackable": false },
+                { "name": "heavyArmor", "duration": 3, "stacks": 5, "stackable": false }
+            ]
+        }
+    ]
 }
