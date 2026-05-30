@@ -472,7 +472,14 @@ function setupConnection() {
                 // 安全校验：检查客户端传来的目标点是否在技能射程内
                 if (!isFixed && !checkSkillRange(oppPos.r, oppPos.c, targetR, targetC, skill.range, skill.rangeType)) return;
 
-                // 确定实际影响半径：如果是区域放置，使用 areaRange (1) 生成 3x3；否则使用射程 range
+                // 消耗处理：先扣除点数，以便后续脚本增加的点数能保留
+                if (skill.consumeTurn) {
+                    oppActionPoints = 0;
+                    oppMovePoints = 0;
+                } else {
+                    oppActionPoints--;
+                }
+
                 // 确定实际影响半径和类型：如果是区域放置，使用 areaEffect 定义的半径和类型 (默认 round)
                 const isArea = (skill.rangeType === 'area_placement' && skill.areaEffect);
                 const effectiveRange = isArea ? skill.areaEffect.areaRange : skill.range;
@@ -542,6 +549,15 @@ function setupConnection() {
                 // 核心修改：技能不对释放者生效（除非是明确的自身强化技能 rangeType: self）
                 const hitClient = (skill.rangeType === 'self');
                 if (hitClient) {
+                    // 修复：确保 self 技能也能触发脚本逻辑（如盾兵 S3 给 AP）
+                    if (skill.scripts && Array.isArray(skill.scripts)) {
+                        skill.scripts.forEach(sRef => {
+                            const logic = skillRegistry[sRef.name];
+                            if (logic && typeof logic.onHit === 'function') {
+                                logic.onHit(oppStats, skill, sRef.props, { targetR, targetC, originR: oppPos.r, originC: oppPos.c });
+                            }
+                        });
+                    }
                     applyBuffFromSkill(oppStats, skill);
                 }
 
@@ -550,28 +566,15 @@ function setupConnection() {
                     oppPos = affectedTiles[affectedTiles.length - 1];
                 }
 
-                if (skill.consumeTurn) {
-                    oppActionPoints = 0;
-                    oppMovePoints = 0; // 消耗回合技能应清空所有点数
-                    settleMapEffects(oppColor);
-                    currentTurn = myColor;
-                    startMyTurn();
-                } else {
-                    oppActionPoints--;
-                    if (oppActionPoints <= 0 && oppMovePoints <= 0) {
-                        settleMapEffects(oppColor);
-                        currentTurn = myColor;
-                        startMyTurn();
-                    } else {
-                        sendState('state_sync');
-                    }
-                    drawCharacters(); // 确保主机屏幕也能实时刷新
-                }
+                // 统一使用自动结束检测，如果脚本给 oppActionPoints 增加了值，则不会切回合
+                updateHPDisplay();
+                drawCharacters();
+                checkAutoEndTurn();
             } else {
                 // 客户端同步主机的技能 CD
                 oppStats.skills[data.skillIndex].cdCurrent = oppStats.skills[data.skillIndex].cdMax;
             } // No need to drawCharacters/updateHPDisplay here, it's done after the if/else
-            drawCharacters(); updateHPDisplay();
+            updateHPDisplay(); drawCharacters();
             selectedTargetPos = null; // 客户端收到同步后清除目标
         }
     });
@@ -950,13 +953,16 @@ async function startGame() {
 
 // 切换攻击/移动模式
 atkModeBtn.addEventListener('click', () => {
+    // 核心修复：如果 AP 已耗尽且当前是移动模式，禁止切换到攻击模式
+    if (myActionPoints <= 0 && !isAtkMode) return;
+
     isAtkMode = !isAtkMode;
 
     // 切换任何模式都应取消当前的技能预选状态，确保逻辑清晰
     selectedSkillIndex = null;
     selectedTargetPos = null; // 切换模式时清除目标
-    drawCharacters();
-    updateHPDisplay(); // 更新按钮状态
+    updateHPDisplay(); // 先更新状态（包含可能的 resetMode 逻辑）
+    drawCharacters();  // 后执行绘制
 });
 
 function resetMode() {
@@ -999,8 +1005,8 @@ function updateHPDisplay() {
     const isMyTurn = (gameActive && currentTurn === myColor);
 
     // 核心修复：自动模式切换
-    // 如果 AP 用完但还有移动点，且处于攻击模式，自动切回移动模式，防止操作被攻击模式锁定
-    if (isMyTurn && myActionPoints <= 0 && myMovePoints > 0 && isAtkMode) {
+    // 只要 AP 用完，就必须强制切回移动模式，因为攻击模式在 0 AP 时无效
+    if (isMyTurn && myActionPoints <= 0 && isAtkMode) {
         resetMode();
     }
 
@@ -1122,8 +1128,8 @@ function useSkill(index) {
         }
     }
 
-    drawCharacters();
     updateHPDisplay();
+    drawCharacters();
 }
 
 // 正式释放技能的逻辑
@@ -1132,6 +1138,14 @@ confirmSkillBtn.addEventListener('click', () => {
 
     const index = selectedSkillIndex;
     const skill = myStats.skills[index];
+
+    // 1. 消耗处理：先扣除点数，以便后续脚本增加的点数能保留
+    if (skill.consumeTurn) {
+        myActionPoints = 0;
+        myMovePoints = 0;
+    } else {
+        myActionPoints--;
+    }
 
     // 2. 设置 CD (只要技能被确认释放，就进入冷却)
     skill.cdCurrent = skill.cdMax;
@@ -1213,6 +1227,15 @@ confirmSkillBtn.addEventListener('click', () => {
     // 核心修改：技能不对释放者生效（除非是明确的自身强化技能 rangeType: self）
     const hitMe = (skill.rangeType === 'self');
     if (hitMe) {
+        // 修复：确保 self 技能也能触发本地脚本逻辑
+        if (skill.scripts && Array.isArray(skill.scripts)) {
+            skill.scripts.forEach(sRef => {
+                const logic = skillRegistry[sRef.name];
+                if (logic && typeof logic.onHit === 'function') {
+                    logic.onHit(myStats, skill, sRef.props, { targetR, targetC, originR: myPos.r, originC: myPos.c });
+                }
+            });
+        }
         applyBuffFromSkill(myStats, skill);
     }
 
@@ -1229,18 +1252,10 @@ confirmSkillBtn.addEventListener('click', () => {
     if (conn && conn.open) conn.send({ type: 'use_skill', skillIndex: index, targetPos: lastTarget });
 
     // 4. 消耗处理
-    drawCharacters(); 
     updateHPDisplay();
+    drawCharacters(); 
     updateStatusText();
     sendState('state_sync');
-
-    // 核心修改：使用统一的延迟检测逻辑，确保放置类技能等操作完全结算
-    if (skill.consumeTurn) {
-        myActionPoints = 0;
-        myMovePoints = 0;
-    } else {
-        myActionPoints--;
-    }
     if (isHost) checkAutoEndTurn();
 });
 
@@ -1785,19 +1800,16 @@ function _executeHostTurnSwap(finishedColor) {
 // 新增：延迟检查自动结束回合
 function checkAutoEndTurn() {
     if (!isHost) return;
-    
-    // 延迟 50ms 确保微任务和状态更新（如 mapEffects.push）执行完毕
-    setTimeout(() => {
-        const stats = (currentTurn === myColor) ? myStats : oppStats;
-        const ap = (currentTurn === myColor) ? myActionPoints : oppActionPoints;
-        const mp = (currentTurn === myColor) ? myMovePoints : oppMovePoints;
 
-        if (ap <= 0 && mp <= 0) {
-            _executeHostTurnSwap(currentTurn);
-        } else {
-            sendState('state_sync');
-        }
-    }, 50);
+    const stats = (currentTurn === myColor) ? myStats : oppStats;
+    const ap = (currentTurn === myColor) ? myActionPoints : oppActionPoints;
+    const mp = (currentTurn === myColor) ? myMovePoints : oppMovePoints;
+
+    if (ap <= 0 && mp <= 0) {
+        _executeHostTurnSwap(currentTurn);
+    } else {
+        sendState('state_sync');
+    }
 }
 
 endTurnBtn.addEventListener('click', endMyTurn);
@@ -1888,7 +1900,8 @@ function drawCharacters() {
         }
     }
     // 新增：如果处于攻击模式且没有选中技能，绘制普攻范围
-    else if (gameActive && currentTurn === myColor && isAtkMode && selectedSkillIndex === null && myStats) {
+    // 双保险：增加 myActionPoints > 0 判定，确保 0 AP 时绝不显示攻击范围
+    else if (gameActive && currentTurn === myColor && isAtkMode && myActionPoints > 0 && selectedSkillIndex === null && myStats) {
         // 使用角色卡定义的普攻类型
         const atkType = myStats.atkRangeType || 'line';
         drawRangeHints(myPos.r, myPos.c, myStats.atkRange, 'rgba(255, 0, 0, 0.3)', atkType);
@@ -2149,7 +2162,8 @@ function handleRemoteAction(data) {
             const oppColor = (myColor === 'black' ? 'white' : 'black');
             if (currentTurn !== oppColor) return;
 
-            if (currentTurn !== oppColor || oppActionPoints <= 0) return;
+            // 核心修复：允许在 AP 为 0 但 MP > 0 的情况下执行动作（移动）
+            if (oppActionPoints <= 0 && oppMovePoints <= 0) return;
             const { row, col, intent } = data;
             const distR = Math.abs(row - oppPos.r);
             const distC = Math.abs(col - oppPos.c);
@@ -2253,13 +2267,16 @@ function handleRemoteAction(data) {
             myPos = data.clientPos; oppPos = data.hostPos;
             currentRound = data.round; currentTurn = data.turn;
 
+            // 稳妥修复：收到同步后立即清除本地所有预测性选点，防止残留 UI 干扰
+            selectedTargetPos = null;
+            
             if (data.actionType === 'game_over') checkGameOver();
             // Ensure Buffs are loaded for proper display and effects
             if (myStats && myStats.activeBuffs) myStats.activeBuffs.forEach(b => ensureBuffLoaded(b.name));
             if (oppStats && oppStats.activeBuffs) oppStats.activeBuffs.forEach(b => ensureBuffLoaded(b.name));
         }
     }
-    drawCharacters(); updateHPDisplay(); updateStatusText();
+    updateHPDisplay(); drawCharacters(); updateStatusText();
 }
 
 // 检查攻击路径是否被墙体阻挡
@@ -2350,8 +2367,12 @@ canvas.addEventListener('mousedown', (e) => {
     const canIMove = !myStats.activeBuffs || !myStats.activeBuffs.some(b => buffRegistry[b.name]?.effect?.canMove === false);
 
     if (isHost) {
-        if (isAtkMode) {
-            if (myActionPoints > 0 && oppStats && checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) {
+        if (!gameActive || currentTurn !== myColor) return;
+        let actionConsumed = false;
+
+        // 修复：只有在有 AP 的情况下才执行攻击模式判定
+        if (isAtkMode && myActionPoints > 0) {
+            if (oppStats && checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) {
                 const affected = getAffectedTiles(myPos.r, myPos.c, row, col, myStats.atkRange, atkType);
                 const hitOpp = affected.some(t => t.r === oppPos.r && t.c === oppPos.c);
 
@@ -2378,9 +2399,13 @@ canvas.addEventListener('mousedown', (e) => {
                     }
                     myActionPoints--;
                     selectedTargetPos = null;
+                    actionConsumed = true;
                 }
-            } // 这里是之前漏掉的闭合括号，用于闭合 if (myActionPoints > 0 ...)
-        } else if (distR + distC === 1) {
+            }
+        } 
+        
+        // 如果不是攻击动作，或者攻击未触发，则尝试移动
+        if (!actionConsumed && distR + distC === 1) {
             if (!canIMove) return; // 束缚检查
             if (myActionPoints <= 0 && myMovePoints <= 0) return;
             const targetTile = mapGrid[row][col];
@@ -2388,25 +2413,35 @@ canvas.addEventListener('mousedown', (e) => {
                 myPos = { r: row, c: col }; // myPos is updated locally on host
                 addLog('log_move', ['log_side_me', row, col], '#607d8b');
                 if (myMovePoints > 0) myMovePoints--; else myActionPoints--;
+                actionConsumed = true;
             }
         }
 
-        drawCharacters(); 
-        updateHPDisplay(); 
-        updateStatusText();
-        sendState('state_sync');
-
-        checkAutoEndTurn();
+        if (actionConsumed) {
+            updateHPDisplay(); 
+            drawCharacters(); 
+            updateStatusText();
+            sendState('state_sync');
+            checkAutoEndTurn();
+        }
     } else {
-        // 客户端逻辑同步优化：如果处于攻击模式                but AP 耗尽，或者点击范围不符，应允许发送移动请求
-        if (isAtkMode && myActionPoints > 0) {
+        // 修复：确定实际意图。如果处于攻击模式但 AP 耗尽，则实际意图应为移动
+        const finalIntent = (isAtkMode && myActionPoints > 0) ? 'attack' : 'move';
+        
+        if (finalIntent === 'attack') {
             if (!checkSkillRange(myPos.r, myPos.c, row, col, myStats.atkRange, atkType)) return;
+            // 客户端预测：立即扣除 AP
+            myActionPoints--;
         } else {
             if (!canIMove) return; // 束缚检查
             const targetTile = mapGrid[row][col];
             if (distR + distC !== 1 || targetTile === 1 || targetTile === 2) return;
+            // 客户端预测：立即执行位移并扣除点数
+            if (myMovePoints > 0) myMovePoints--; else myActionPoints--;
+            myPos = { r: row, c: col };
         }
-        conn.send({ type: 'action', actionType: 'client_request_action', row, col, intent: isAtkMode ? 'attack' : 'move' });
+        updateHPDisplay(); drawCharacters(); // 立即刷新 UI，消除延迟感
+        conn.send({ type: 'action', actionType: 'client_request_action', row, col, intent: finalIntent });
     }
 });
 
