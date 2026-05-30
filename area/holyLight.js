@@ -10,12 +10,13 @@ window.AreaSystem.register('holyLight', {
     effect: {
         onTrigger: (effectRecord, targetStats, targetPos) => {
             // 检查目标是否在区域内
+            // 使用 Math.round 确保重合(Overlap)时坐标判定 100% 精确
             const isInArea = effectRecord.tiles && effectRecord.tiles.some(t => 
                 Math.round(t.r) === Math.round(targetPos.r) && Math.round(t.c) === Math.round(targetPos.c)
             );
             
             if (isInArea && typeof applyBuffFromSkill === 'function') {
-                // 构造模拟技能对象，确保翻译键 displayName 被正确传递给日志
+                // 确保使用正确的属性名 'name' 传递来源，并使用 'buffEffects' 数组形式提高兼容性
                 const mockSkill = {
                     name: effectRecord.displayName || 'area_holyLight_name',
                     isSecret: false,
