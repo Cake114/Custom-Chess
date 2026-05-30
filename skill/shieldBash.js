@@ -39,17 +39,21 @@ SkillSystem.register('shieldBash', {
         // 2. 判定额外伤害：击退停止后，检查“身后”那一格是否是墙体或地图边界
         const behindR = finalPos.r + dr;
         const behindC = finalPos.c + dc;
-        const isSlammed = (
+        const isSlammed = 
             behindR < 0 || behindR >= 15 || behindC < 0 || behindC >= 15 || 
-            (mapGrid[behindR] && mapGrid[behindR][behindC] === 2)
-        );
+            (mapGrid[behindR] && mapGrid[behindR][behindC] === 2);
+        
 
         // 更新坐标
         if (targetStats === oppStats) oppPos = finalPos; else myPos = finalPos;
 
         // 撞墙额外效果
         if (isSlammed) {
-            applyBuffFromSkill(targetStats, { buffEffect: { name: 'slow', duration: 1 } });
+            // 完善：传入技能名称，确保日志能正确显示状态来源
+            applyBuffFromSkill(targetStats, { 
+                name: skill.name,
+                buffEffect: { name: 'slow', duration: 1 } 
+            });
             return { 
                 bonusDamage: props.slamDamage,
                 logKey: 'log_shield_bash_slam',
